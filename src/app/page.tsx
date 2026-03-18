@@ -1,16 +1,14 @@
-import Link from "next/link";
 import {
-  AlertTriangle,
   BellRing,
   FolderTree,
   Megaphone,
-  Orbit,
 } from "lucide-react";
+import NextLink from "next/link";
 
+import { BrandHero } from "@/components/home/brand-hero";
 import { Reveal, StaggerGrid, StaggerItem } from "@/components/motion/motion-primitives";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { talkRepository } from "@/lib/repository";
 
@@ -19,6 +17,8 @@ const noticeBadgeVariant = {
   warning: "outline",
   important: "default",
 } as const;
+
+const Link = NextLink;
 
 export default async function HomePage() {
   const [
@@ -55,82 +55,14 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-8">
-      {importantNotice ? (
-        <Reveal>
-          <section className="brand-card p-4 md:p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <AlertTriangle className="size-4" aria-hidden="true" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold tracking-wide text-foreground uppercase">Priority Notice</p>
-                  <p className="text-sm font-semibold text-foreground md:text-base">{importantNotice.title}</p>
-                  <p className="text-sm text-muted-foreground">{importantNotice.body}</p>
-                </div>
-              </div>
-              <Badge variant="outline" className="w-fit border-foreground/20 bg-background/60">
-                {importantNotice.publishedAt}
-              </Badge>
-            </div>
-          </section>
-        </Reveal>
-      ) : null}
+      <BrandHero importantNotice={importantNotice ?? null} highlights={highlights} />
 
       <Reveal>
-        <section className="relative overflow-hidden rounded-2xl border border-zinc-900/20 geo-hero-surface p-6 shadow-[0_22px_48px_oklch(0.14_0_0_/_0.11)] md:p-10">
-          <div className="absolute inset-0 geo-grid-overlay opacity-45" aria-hidden="true" />
-          <div className="brand-diagonal-band absolute top-0 right-0 h-20 w-60 opacity-95 md:h-28 md:w-88" aria-hidden="true" />
-          <div className="absolute right-4 bottom-4 hidden rotate-12 border border-zinc-900/15 bg-background/75 px-3 py-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase md:block" aria-hidden="true">
-            Internal Knowledge Portal
-          </div>
-
-          <div className="relative grid gap-6 lg:grid-cols-[1.5fr_1fr] lg:items-stretch">
-            <div className="space-y-4 rounded-2xl border border-zinc-900/15 bg-white/92 p-5 shadow-[0_12px_30px_rgba(20,20,20,0.08)] md:p-7">
-              <Badge variant="outline" className="w-fit border-zinc-900/20 bg-zinc-100 text-zinc-700">
-                BB CONNECTION TALK PORTAL
-              </Badge>
-              <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-zinc-900 md:text-5xl md:leading-tight">
-                成果を個人技から
-                <span className="mx-2 inline-flex items-center bg-primary px-2 py-0.5 text-primary-foreground">再現性</span>
-                へ。
-              </h1>
-              <p className="max-w-2xl text-sm leading-relaxed text-zinc-600 md:text-base">
-                社内向けトーク資産を、毎日見るホームとして最適化。枝分かれトークと更新情報を同一画面で管理します。
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button asChild className="bg-zinc-900 text-zinc-50 hover:bg-zinc-800">
-                  <Link href="/talks">トークを確認する</Link>
-                </Button>
-                <Button asChild variant="outline" className="border-zinc-900/25 bg-white hover:bg-zinc-100">
-                  <Link href="/talks?category=hikari-objection">切り返しカテゴリへ</Link>
-                </Button>
-              </div>
-            </div>
-
-            <div className="brand-card h-full border-zinc-900/15 bg-background/80 p-4 backdrop-blur-sm">
-              <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Orbit className="size-4 text-primary" aria-hidden="true" />
-                本日の重要情報
-              </div>
-              <div className="space-y-2">
-                {highlights.slice(0, 3).map((highlight, index) => (
-                  <div key={highlight.id} className="min-h-20 rounded-md border border-zinc-900/12 bg-card px-3 py-2">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-foreground">{highlight.title}</p>
-                      <Badge
-                        variant={highlight.priority === "high" ? "default" : "secondary"}
-                        className={index === 0 ? "bg-primary text-primary-foreground" : undefined}
-                      >
-                        {highlight.priority === "high" ? "HIGH" : "MED"}
-                      </Badge>
-                    </div>
-                    <p className="text-xs leading-relaxed text-muted-foreground">{highlight.detail}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        <section className="relative -mt-2 overflow-hidden rounded-2xl border border-zinc-900/10 bg-card/75 p-4 backdrop-blur-sm md:p-5">
+          <div className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden="true" />
+          <p className="pl-2 text-sm text-muted-foreground">
+            ここからは日常業務向けのポータル導線です。最短で台本に到達できるよう、利用頻度順で配置しています。
+          </p>
         </section>
       </Reveal>
 
