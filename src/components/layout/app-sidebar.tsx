@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenText, House, Layers3, PanelLeft } from "lucide-react";
+import { BookOpenText, House, Layers3 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -26,14 +27,14 @@ export function AppSidebar() {
 
   return (
     <aside className="hidden md:fixed md:inset-y-0 md:flex md:w-64 md:flex-col md:border-r md:bg-card">
-      <div className="border-b px-5 py-5">
+      <div className="border-b px-5 py-4">
         <Link href="/" className="group flex items-center gap-3 focus-visible:outline-none">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
-            <PanelLeft className="size-4" aria-hidden="true" />
+          <div className="flex size-10 items-center justify-center rounded-full border border-zinc-900/12 bg-zinc-50 transition-colors group-hover:bg-zinc-100">
+            <Image src="/bbc-mark.svg" alt="Broad Band Connection" width={24} height={24} className="size-6" priority />
           </div>
-          <div>
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Tele-apo Portal</p>
-            <p className="text-sm font-semibold text-foreground">トークポータル</p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-500 uppercase">Broad Band</p>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-500 uppercase">Connection</p>
           </div>
         </Link>
       </div>

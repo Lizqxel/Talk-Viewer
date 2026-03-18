@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronLeft, FolderTree, UserRound } from "lucide-react";
 import { notFound } from "next/navigation";
 
+import { TalkScriptFlow } from "@/components/talk/talk-script-flow";
 import { TalkTreeView } from "@/components/talk/talk-tree-view";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -66,9 +67,13 @@ export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
           <FolderTree className="size-5 text-primary" aria-hidden="true" />
-          トークツリー
+          {talk.id === "hikari-kojin-standard" ? "台本フロー" : "トークツリー"}
         </h2>
-        <TalkTreeView nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
+        {talk.id === "hikari-kojin-standard" ? (
+          <TalkScriptFlow nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
+        ) : (
+          <TalkTreeView nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
+        )}
       </section>
     </div>
   );

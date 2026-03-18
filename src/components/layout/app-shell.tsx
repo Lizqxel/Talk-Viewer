@@ -9,7 +9,7 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-background">
       <div className="flex min-h-screen">
         <AppSidebar />
         <div className="flex min-h-screen w-full flex-col md:pl-64">
