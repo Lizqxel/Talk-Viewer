@@ -12,6 +12,11 @@ interface TalkDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
+export async function generateStaticParams() {
+  const talks = await talkRepository.getTalkList();
+  return talks.map((talk) => ({ id: talk.id }));
+}
+
 export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
   const { id } = await params;
   const isScriptFlowTalk = id === "hikari-kojin-standard" || id === "hikari-hojin-standard";

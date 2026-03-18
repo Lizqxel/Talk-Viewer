@@ -25,7 +25,6 @@ interface TalksExplorerProps {
   tags: string[];
   productLabels: Record<TalkProduct, string>;
   sceneLabels: Record<TalkScene, string>;
-  initialCategoryId?: string;
 }
 
 type ViewMode = "card" | "list";
@@ -38,7 +37,6 @@ export function TalksExplorer({
   tags,
   productLabels,
   sceneLabels,
-  initialCategoryId,
 }: TalksExplorerProps) {
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("card");
@@ -46,7 +44,7 @@ export function TalksExplorer({
   const [selectedScenes, setSelectedScenes] = useState<TalkScene[]>([]);
   const [selectedDifficulties, setSelectedDifficulties] = useState<TalkDifficulty[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(initialCategoryId);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(undefined);
 
   const hasFilters =
     selectedProducts.length > 0 ||

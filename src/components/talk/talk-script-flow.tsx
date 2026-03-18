@@ -190,10 +190,6 @@ function renderLineWithCommaBreak(text: string, keyPrefix: string) {
 export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
   const rootNodeId = rootNodeIds[0];
 
-  if (!rootNodeId) {
-    return null;
-  }
-
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
   const sections: ScriptSection[] = hikariScriptSectionDefs
@@ -223,6 +219,12 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
           nodes: [node],
         }));
 
+  const [openSectionId, setOpenSectionId] = useState<string | null>(displaySections[0]?.id ?? null);
+
+  if (!rootNodeId) {
+    return null;
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       <motion.div
@@ -245,9 +247,10 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
               <motion.section
                 key={section.id}
                 className="pb-8 last:pb-0"
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.2 }}
+                initial={false}
+                animate={{ opacity: 1, y: 0 }}
+                viewport={{ once: false, amount: 0.42 }}
+                onViewportEnter={() => setOpenSectionId(section.id)}
                 transition={{ duration: 0.35, ease: "easeOut", delay: index * 0.03 }}
               >
                 <div className="mb-3 flex items-center gap-2">
@@ -277,7 +280,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
         </Card>
 
         <div className="xl:sticky xl:top-20">
-          <OutReplyPanel sections={displaySections} />
+          <OutReplyPanel sections={displaySections} openSectionId={openSectionId} onOpenSectionChange={setOpenSectionId} />
         </div>
       </div>
     </div>
@@ -336,8 +339,15 @@ function inlineToneClass(tone?: "branch" | "operator" | "condition" | "warning")
   return "text-sm leading-7 text-muted-foreground";
 }
 
-function OutReplyPanel({ sections }: { sections: ScriptSection[] }) {
-  const [openSectionId, setOpenSectionId] = useState<string | null>(sections[0]?.id ?? null);
+function OutReplyPanel({
+  sections,
+  openSectionId,
+  onOpenSectionChange,
+}: {
+  sections: ScriptSection[];
+  openSectionId: string | null;
+  onOpenSectionChange: (sectionId: string | null) => void;
+}) {
 
   return (
     <Card className="overflow-hidden border-zinc-900/15 bg-card shadow-sm">
@@ -361,7 +371,7 @@ function OutReplyPanel({ sections }: { sections: ScriptSection[] }) {
             >
               <button
                 type="button"
-                onClick={() => setOpenSectionId((current) => (current === section.id ? null : section.id))}
+                onClick={() => onOpenSectionChange(openSectionId === section.id ? null : section.id)}
                 className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/30"
               >
                 <span className="text-sm font-medium text-zinc-900">{section.title}</span>
