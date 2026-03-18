@@ -1,12 +1,7 @@
 import { TalksExplorer } from "@/components/talk/talks-explorer";
 import { talkRepository } from "@/lib/repository";
 
-interface TalksPageProps {
-  searchParams: Promise<{ category?: string }>;
-}
-
-export default async function TalksPage({ searchParams }: TalksPageProps) {
-  const { category } = await searchParams;
+export default async function TalksPage() {
 
   const [talks, categories, tags, productLabels, sceneLabels] = await Promise.all([
     talkRepository.getTalkList(),
@@ -23,7 +18,6 @@ export default async function TalksPage({ searchParams }: TalksPageProps) {
       tags={tags}
       productLabels={productLabels}
       sceneLabels={sceneLabels}
-      initialCategoryId={category}
     />
   );
 }
