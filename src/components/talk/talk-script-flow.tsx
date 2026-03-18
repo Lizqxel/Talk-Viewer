@@ -18,6 +18,47 @@ type OutReply = {
   reply: string;
 };
 
+type ScriptSection = {
+  id: string;
+  title: string;
+  lines: string[];
+  outReplies: OutReply[];
+  nodes?: TalkNode[];
+};
+
+const hikariScriptSectionDefs = [
+  {
+    id: "opening",
+    title: "オープニング",
+    nodeIds: ["hikari-open"],
+  },
+  {
+    id: "requirement",
+    title: "要件説明",
+    nodeIds: ["hikari-purpose"],
+  },
+  {
+    id: "hearing",
+    title: "現状確認(ヒアリング)",
+    nodeIds: ["hikari-age-check", "hikari-confirm-1"],
+  },
+  {
+    id: "benefit",
+    title: "ベネフィット提示",
+    nodeIds: ["hikari-benefit"],
+  },
+  {
+    id: "appointment-qualification",
+    title: "アポ診断",
+    nodeIds: ["hikari-price-closing", "hikari-family-consent"],
+  },
+  {
+    id: "closing",
+    title: "クロージング(アポ獲得次)",
+    nodeIds: ["hikari-next-steps", "hikari-contact", "hikari-double-check"],
+  },
+] as const;
+
 const outReplyByNodeId: Record<string, OutReply[]> = {
   "hikari-open": [
     {
@@ -113,12 +154,74 @@ const outReplyByNodeId: Record<string, OutReply[]> = {
   ],
 };
 
+function renderLineWithCommaBreak(text: string, keyPrefix: string) {
+  const parts = text.split("、");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  parts.forEach((part, index) => {
+    currentLine += part;
+
+    const hasComma = index < parts.length - 1;
+    if (!hasComma) {
+      return;
+    }
+
+    currentLine += "、";
+
+    if ([...currentLine].length >= 8) {
+      lines.push(currentLine);
+      currentLine = "";
+    }
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.map((line, index) => (
+    <span key={`${keyPrefix}-${index}`}>
+      {line}
+      {index < lines.length - 1 ? <br /> : null}
+    </span>
+  ));
+}
+
 export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
   const rootNodeId = rootNodeIds[0];
 
   if (!rootNodeId) {
     return null;
   }
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+  const sections: ScriptSection[] = hikariScriptSectionDefs
+    .map((sectionDef) => {
+      const sectionNodes = sectionDef.nodeIds
+        .map((nodeId) => nodeById.get(nodeId))
+        .filter((node): node is TalkNode => Boolean(node));
+
+      return {
+        id: sectionDef.id,
+        title: sectionDef.title,
+        lines: sectionNodes.flatMap((node) => node.readAloudScript ?? node.lines),
+        outReplies: sectionNodes.flatMap((node) => outReplyByNodeId[node.id] ?? []),
+        nodes: sectionNodes,
+      };
+    })
+    .filter((section) => section.lines.length > 0);
+
+  const displaySections: ScriptSection[] =
+    sections.length > 0
+      ? sections
+      : nodes.map((node) => ({
+          id: node.id,
+          title: node.title,
+          lines: node.readAloudScript ?? node.lines,
+          outReplies: outReplyByNodeId[node.id] ?? [],
+          nodes: [node],
+        }));
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -138,9 +241,9 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
             <CardTitle className="text-xl text-zinc-900">台本全文</CardTitle>
           </CardHeader>
           <CardContent className="space-y-0 pt-5">
-            {nodes.map((node, index) => (
+            {displaySections.map((section, index) => (
               <motion.section
-                key={node.id}
+                key={section.id}
                 className="pb-8 last:pb-0"
                 initial={{ opacity: 0, y: 10 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -149,7 +252,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
               >
                 <div className="mb-3 flex items-center gap-2">
                   <span className="rounded bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-zinc-100">{index + 1}</span>
-                  <h3 className="text-lg font-semibold tracking-tight text-zinc-900 md:text-xl">{node.title}</h3>
+                  <h3 className="text-lg font-semibold tracking-tight text-zinc-900 md:text-xl">{section.title}</h3>
                 </div>
                 <motion.div
                   whileHover={{ y: -1.5 }}
@@ -157,38 +260,24 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
                   className="relative space-y-3 overflow-hidden rounded-lg border border-zinc-900/10 bg-background p-4 md:p-5"
                 >
                   <div className="absolute inset-y-0 left-0 w-1 bg-primary/80" aria-hidden="true" />
-                  <RenderNodeScript node={node} />
-
-                  {node.inlineNotes?.length ? null : (
-                    <>
-                      {node.conditions?.length
-                        ? node.conditions.map((condition, conditionIndex) => (
-                            <p key={`${node.id}-condition-${conditionIndex}`} className="text-sm leading-7 text-muted-foreground">
-                              {condition}
-                            </p>
-                          ))
-                        : null}
-
-                      {node.branchNotes?.length ? (
-                        <InlineNotesBlock title="分岐メモ" items={node.branchNotes} tone="primary" />
-                      ) : null}
-                      {node.operatorNotes?.length ? (
-                        <InlineNotesBlock title="運用メモ" items={node.operatorNotes} tone="muted" />
-                      ) : null}
-                      {node.doNotRead?.length ? (
-                        <InlineNotesBlock title="読み上げ禁止" items={node.doNotRead} tone="warning" />
-                      ) : null}
-                    </>
+                  {sections.length > 0 ? (
+                    section.lines.map((line, lineIndex) => (
+                      <p key={`${section.id}-${lineIndex}`} className="text-[1.02rem] leading-8 text-foreground [text-wrap:pretty] md:text-[1.08rem]">
+                        {renderLineWithCommaBreak(line, `${section.id}-${lineIndex}`)}
+                      </p>
+                    ))
+                  ) : (
+                    section.nodes?.map((node) => <RenderNodeScript key={node.id} node={node} />)
                   )}
                 </motion.div>
-                {index < nodes.length - 1 ? <Separator className="mt-6" /> : null}
+                {index < displaySections.length - 1 ? <Separator className="mt-6" /> : null}
               </motion.section>
             ))}
           </CardContent>
         </Card>
 
         <div className="xl:sticky xl:top-20">
-          <OutReplyPanel nodes={nodes} />
+          <OutReplyPanel sections={displaySections} />
         </div>
       </div>
     </div>
@@ -247,42 +336,8 @@ function inlineToneClass(tone?: "branch" | "operator" | "condition" | "warning")
   return "text-sm leading-7 text-muted-foreground";
 }
 
-function InlineNotesBlock({
-  title,
-  items,
-  tone,
-}: {
-  title: string;
-  items?: string[];
-  tone: "primary" | "muted" | "warning";
-}) {
-  if (!items || items.length === 0) {
-    return null;
-  }
-
-  const toneClass =
-    tone === "primary"
-      ? "border-primary/30 bg-primary/5"
-      : tone === "warning"
-        ? "border-amber-300/60 bg-amber-50/60"
-        : "border-zinc-900/10 bg-muted/20";
-
-  return (
-    <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
-      <p className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</p>
-      <ul className="space-y-1.5">
-        {items.map((item, index) => (
-          <li key={`${title}-${index}`} className="text-sm leading-relaxed text-foreground">
-            {item}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function OutReplyPanel({ nodes }: { nodes: TalkNode[] }) {
-  const [openSectionId, setOpenSectionId] = useState<string | null>(nodes[0]?.id ?? null);
+function OutReplyPanel({ sections }: { sections: ScriptSection[] }) {
+  const [openSectionId, setOpenSectionId] = useState<string | null>(sections[0]?.id ?? null);
 
   return (
     <Card className="overflow-hidden border-zinc-900/15 bg-card shadow-sm">
@@ -294,26 +349,25 @@ function OutReplyPanel({ nodes }: { nodes: TalkNode[] }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 pt-4">
-        {nodes.map((node) => {
-          const entries = outReplyByNodeId[node.id] ?? [];
-          const isOpen = openSectionId === node.id;
+        {sections.map((section) => {
+          const isOpen = openSectionId === section.id;
 
           return (
             <motion.div
-              key={node.id}
+              key={section.id}
               whileHover={{ y: -1 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="rounded-lg border border-zinc-900/10 bg-background"
             >
               <button
                 type="button"
-                onClick={() => setOpenSectionId((current) => (current === node.id ? null : node.id))}
+                onClick={() => setOpenSectionId((current) => (current === section.id ? null : section.id))}
                 className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/30"
               >
-                <span className="text-sm font-medium text-zinc-900">{node.title}</span>
+                <span className="text-sm font-medium text-zinc-900">{section.title}</span>
                 <ChevronDown className={`size-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : "rotate-0"}`} />
               </button>
-              <AnimatePresence initial={false}>{isOpen ? <OutReplyTree entries={entries} /> : null}</AnimatePresence>
+              <AnimatePresence initial={false}>{isOpen ? <OutReplyTree entries={section.outReplies} /> : null}</AnimatePresence>
             </motion.div>
           );
         })}
@@ -356,7 +410,7 @@ function OutReplyTree({ entries }: { entries: OutReply[] }) {
               className="w-full rounded-md border border-zinc-900/10 bg-muted/20 px-3 py-2 text-left transition-colors hover:border-primary/45 hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">OUT</p>
-              <p className="text-sm leading-relaxed text-foreground">{entry.out}</p>
+              <p className="text-sm leading-relaxed text-foreground [text-wrap:pretty]">{renderLineWithCommaBreak(entry.out, `out-${index}`)}</p>
             </button>
 
             <AnimatePresence initial={false}>
@@ -377,7 +431,7 @@ function OutReplyTree({ entries }: { entries: OutReply[] }) {
                       <MessageCircleReply className="size-3.5 text-primary" aria-hidden="true" />
                       アウト返し
                     </p>
-                    <p className="text-sm leading-relaxed text-foreground">{entry.reply}</p>
+                    <p className="text-sm leading-relaxed text-foreground [text-wrap:pretty]">{renderLineWithCommaBreak(entry.reply, `reply-${index}`)}</p>
                   </div>
                 </motion.div>
               ) : null}

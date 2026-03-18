@@ -11,13 +11,6 @@ interface BrandHeroProps {
   highlights: DailyHighlight[];
 }
 
-const heroNavItems = [
-  { label: "企業情報", href: "#" },
-  { label: "事業内容", href: "#" },
-  { label: "採用情報", href: "#" },
-  { label: "お知らせ", href: "#" },
-];
-
 export function BrandHero({ importantNotice, highlights }: BrandHeroProps) {
   return (
     <section className="home-hero-frame relative min-h-[88vh] overflow-hidden rounded-3xl border border-zinc-900/15 xl:min-h-[92vh]">
@@ -29,20 +22,8 @@ export function BrandHero({ importantNotice, highlights }: BrandHeroProps) {
       <div className="home-hero-geo-black absolute right-[-12vw] top-[22%] h-[34vh] w-[56vw]" aria-hidden="true" />
       <div className="home-hero-geo-bottom absolute -bottom-16 right-[10%] h-56 w-[36vw]" aria-hidden="true" />
 
-      <div className="relative z-10 flex min-h-[88vh] flex-col p-5 md:p-8 xl:min-h-[92vh] xl:p-10">
-        <nav className="hidden items-center justify-end gap-2 md:flex" aria-label="ヒーローナビゲーション">
-          {heroNavItems.map((item) => (
-            <a
-              key={item.label}
-              href={item.href}
-              className="rounded-md px-3 py-1.5 text-sm font-semibold text-zinc-700 transition-colors hover:bg-black hover:text-white"
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-
-        <div className="mt-auto grid gap-8 xl:grid-cols-[1.2fr_0.8fr] xl:items-end">
+      <div className="relative z-10 flex min-h-[88vh] flex-col justify-center p-5 md:p-8 xl:min-h-[92vh] xl:p-10">
+        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr] xl:items-end">
           <div className="max-w-4xl space-y-5">
             <Badge variant="outline" className="border-zinc-900/25 bg-white/55 text-zinc-700 backdrop-blur-sm">
               BB CONNECTION TALK PORTAL

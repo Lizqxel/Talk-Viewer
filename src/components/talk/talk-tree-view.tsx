@@ -31,6 +31,39 @@ const kindLabel: Record<TalkNode["kind"], string> = {
   note: "補足",
 };
 
+function renderLineWithCommaBreak(text: string, keyPrefix: string) {
+  const parts = text.split("、");
+  const lines: string[] = [];
+  let currentLine = "";
+
+  parts.forEach((part, index) => {
+    currentLine += part;
+
+    const hasComma = index < parts.length - 1;
+    if (!hasComma) {
+      return;
+    }
+
+    currentLine += "、";
+
+    if ([...currentLine].length >= 8) {
+      lines.push(currentLine);
+      currentLine = "";
+    }
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.map((line, index) => (
+    <span key={`${keyPrefix}-${index}`}>
+      {line}
+      {index < lines.length - 1 ? <br /> : null}
+    </span>
+  ));
+}
+
 export function TalkTreeView({ nodes, rootNodeIds }: TalkTreeViewProps) {
   const nodeMap = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
 
@@ -177,9 +210,9 @@ function TreeNodeCard({
               <div className="rounded-lg border bg-muted/30 p-3">
                 <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">セリフ</p>
                 <div className="space-y-2">
-                  {scriptLines.map((line) => (
-                    <p key={line} className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
-                      {line}
+                  {scriptLines.map((line, lineIndex) => (
+                    <p key={`${node.id}-${lineIndex}`} className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
+                      {renderLineWithCommaBreak(line, `${node.id}-${lineIndex}`)}
                     </p>
                   ))}
                 </div>
