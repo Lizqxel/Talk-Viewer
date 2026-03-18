@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { type ReactNode } from "react";
+import { motion } from "framer-motion";
 import {
   ArrowRight,
   LayoutGrid,
@@ -270,23 +271,37 @@ export function TalksExplorer({
           ) : viewMode === "card" ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {filteredTalks.map((talk) => (
-                <TalkCard
+                <motion.div
                   key={talk.id}
-                  talk={talk}
-                  productLabel={productLabels[talk.product]}
-                  sceneLabel={sceneLabels[talk.scene]}
-                />
+                  initial={{ opacity: 0, y: 10 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                >
+                  <TalkCard
+                    talk={talk}
+                    productLabel={productLabels[talk.product]}
+                    sceneLabel={sceneLabels[talk.scene]}
+                  />
+                </motion.div>
               ))}
             </div>
           ) : (
             <div className="space-y-3">
               {filteredTalks.map((talk) => (
-                <TalkListItem
+                <motion.div
                   key={talk.id}
-                  talk={talk}
-                  productLabel={productLabels[talk.product]}
-                  sceneLabel={sceneLabels[talk.scene]}
-                />
+                  initial={{ opacity: 0, y: 8 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: 0.25, ease: "easeOut" }}
+                >
+                  <TalkListItem
+                    talk={talk}
+                    productLabel={productLabels[talk.product]}
+                    sceneLabel={sceneLabels[talk.scene]}
+                  />
+                </motion.div>
               ))}
             </div>
           )}
@@ -339,7 +354,7 @@ function TalkCard({
   sceneLabel: string;
 }) {
   return (
-    <Card className="border-border/80 transition-colors hover:border-primary/40">
+    <Card className="brand-card border-border/80">
       <CardHeader>
         <div className="mb-1 flex items-center justify-between gap-2">
           <Badge variant="secondary">{productLabel}</Badge>
@@ -358,13 +373,15 @@ function TalkCard({
             </Badge>
           ))}
         </div>
-        <Link
+        <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+          <Link
           href={`/talks/${talk.id}`}
           className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
-        >
+          >
           詳細を見る
           <ArrowRight className="size-4" aria-hidden="true" />
-        </Link>
+          </Link>
+        </motion.span>
       </CardContent>
     </Card>
   );
@@ -380,7 +397,7 @@ function TalkListItem({
   sceneLabel: string;
 }) {
   return (
-    <Card className="border-border/80">
+    <Card className="brand-card border-border/80">
       <CardContent className="py-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
@@ -394,13 +411,15 @@ function TalkListItem({
           </div>
           <div className="flex flex-col items-start gap-2 md:items-end">
             <span className="text-xs text-muted-foreground">更新: {talk.updatedAt}</span>
-            <Link
+            <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+              <Link
               href={`/talks/${talk.id}`}
               className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
-            >
+              >
               詳細を見る
               <ArrowRight className="size-4" aria-hidden="true" />
-            </Link>
+              </Link>
+            </motion.span>
           </div>
         </div>
       </CardContent>

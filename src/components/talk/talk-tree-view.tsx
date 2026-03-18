@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { type ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ChevronDown,
   ChevronRight,
@@ -34,6 +35,7 @@ export function TalkTreeView({ nodes, rootNodeIds }: TalkTreeViewProps) {
   const nodeMap = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
 
   const [expandedNodeIds, setExpandedNodeIds] = useState<string[]>(rootNodeIds);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(rootNodeIds[0] ?? null);
 
   const toggleNode = (nodeId: string) => {
     setExpandedNodeIds((current) =>
@@ -74,6 +76,8 @@ export function TalkTreeView({ nodes, rootNodeIds }: TalkTreeViewProps) {
               nodeMap={nodeMap}
               expandedNodeIds={expandedNodeIds}
               onToggle={toggleNode}
+              onSelect={setActiveNodeId}
+              activeNodeId={activeNodeId}
               depth={0}
             />
           );
@@ -88,12 +92,16 @@ function TreeNodeCard({
   nodeMap,
   expandedNodeIds,
   onToggle,
+  onSelect,
+  activeNodeId,
   depth,
 }: {
   node: TalkNode;
   nodeMap: Map<string, TalkNode>;
   expandedNodeIds: string[];
   onToggle: (nodeId: string) => void;
+  onSelect: (nodeId: string) => void;
+  activeNodeId: string | null;
   depth: number;
 }) {
   const childNodes = node.nextNodeIds
@@ -101,6 +109,7 @@ function TreeNodeCard({
     .filter((child): child is TalkNode => Boolean(child));
 
   const isExpanded = expandedNodeIds.includes(node.id);
+  const isActive = activeNodeId === node.id;
 
   const handleCopy = async () => {
     const copyText = [
@@ -121,12 +130,16 @@ function TreeNodeCard({
 
   return (
     <div className="space-y-3">
-      <Card className="border-border/80">
+      <motion.div layout>
+      <Card className={`brand-card ${isActive ? "border-primary/60 bg-primary/5" : "border-border/80"}`}>
         <CardContent className="space-y-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <button
               type="button"
-              onClick={() => onToggle(node.id)}
+              onClick={() => {
+                onSelect(node.id);
+                onToggle(node.id);
+              }}
               className="group flex items-start gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring"
               aria-expanded={isExpanded}
             >
@@ -144,14 +157,22 @@ function TreeNodeCard({
               </div>
             </button>
 
-            <Button type="button" size="sm" variant="outline" onClick={handleCopy}>
+            <Button type="button" size="sm" variant={isActive ? "default" : "outline"} onClick={handleCopy}>
               <Copy className="size-4" aria-hidden="true" />
               コピー
             </Button>
           </div>
 
+          <AnimatePresence initial={false}>
           {isExpanded ? (
-            <div className="space-y-4">
+            <motion.div
+              key="expanded"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="space-y-4 overflow-hidden"
+            >
               <div className="rounded-lg border bg-muted/30 p-3">
                 <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">セリフ</p>
                 <div className="space-y-2">
@@ -186,20 +207,28 @@ function TreeNodeCard({
                   <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">次の分岐</p>
                   <div className="flex flex-wrap gap-1.5">
                     {childNodes.map((child) => (
-                      <Badge key={child.id} variant="outline">
+                      <Badge key={child.id} variant={activeNodeId === child.id ? "default" : "outline"}>
                         {child.reactionLabel ?? child.title}
                       </Badge>
                     ))}
                   </div>
                 </div>
               ) : null}
-            </div>
+            </motion.div>
           ) : null}
+          </AnimatePresence>
         </CardContent>
       </Card>
+      </motion.div>
 
       {isExpanded && childNodes.length > 0 ? (
-        <div className="space-y-3 border-l border-dashed pl-4" style={{ marginLeft: `${Math.max(depth, 0) * 2}px` }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+          className="flow-connector space-y-3 border-l border-dashed pl-4"
+          style={{ marginLeft: `${Math.max(depth, 0) * 8}px` }}
+        >
           {childNodes.map((child) => (
             <TreeNodeCard
               key={child.id}
@@ -207,10 +236,12 @@ function TreeNodeCard({
               nodeMap={nodeMap}
               expandedNodeIds={expandedNodeIds}
               onToggle={onToggle}
+              onSelect={onSelect}
+              activeNodeId={activeNodeId}
               depth={depth + 1}
             />
           ))}
-        </div>
+        </motion.div>
       ) : null}
     </div>
   );
