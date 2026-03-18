@@ -14,6 +14,7 @@ interface TalkDetailPageProps {
 
 export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
   const { id } = await params;
+  const isScriptFlowTalk = id === "hikari-kojin-standard" || id === "hikari-hojin-standard";
 
   const [talk, productLabels, sceneLabels] = await Promise.all([
     talkRepository.getTalkById(id),
@@ -67,9 +68,9 @@ export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
           <FolderTree className="size-5 text-primary" aria-hidden="true" />
-          {talk.id === "hikari-kojin-standard" ? "台本フロー" : "トークツリー"}
+          {isScriptFlowTalk ? "台本フロー" : "トークツリー"}
         </h2>
-        {talk.id === "hikari-kojin-standard" ? (
+        {isScriptFlowTalk ? (
           <TalkScriptFlow nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
         ) : (
           <TalkTreeView nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />

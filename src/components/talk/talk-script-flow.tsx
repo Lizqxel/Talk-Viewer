@@ -157,11 +157,29 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
                   className="relative space-y-3 overflow-hidden rounded-lg border border-zinc-900/10 bg-background p-4 md:p-5"
                 >
                   <div className="absolute inset-y-0 left-0 w-1 bg-primary/80" aria-hidden="true" />
-                  {node.lines.map((line, lineIndex) => (
-                    <p key={`${node.id}-${lineIndex}`} className="text-[1.02rem] leading-8 text-foreground md:text-[1.08rem]">
-                      {line}
-                    </p>
-                  ))}
+                  <RenderNodeScript node={node} />
+
+                  {node.inlineNotes?.length ? null : (
+                    <>
+                      {node.conditions?.length
+                        ? node.conditions.map((condition, conditionIndex) => (
+                            <p key={`${node.id}-condition-${conditionIndex}`} className="text-sm leading-7 text-muted-foreground">
+                              {condition}
+                            </p>
+                          ))
+                        : null}
+
+                      {node.branchNotes?.length ? (
+                        <InlineNotesBlock title="分岐メモ" items={node.branchNotes} tone="primary" />
+                      ) : null}
+                      {node.operatorNotes?.length ? (
+                        <InlineNotesBlock title="運用メモ" items={node.operatorNotes} tone="muted" />
+                      ) : null}
+                      {node.doNotRead?.length ? (
+                        <InlineNotesBlock title="読み上げ禁止" items={node.doNotRead} tone="warning" />
+                      ) : null}
+                    </>
+                  )}
                 </motion.div>
                 {index < nodes.length - 1 ? <Separator className="mt-6" /> : null}
               </motion.section>
@@ -173,6 +191,92 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
           <OutReplyPanel nodes={nodes} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function RenderNodeScript({ node }: { node: TalkNode }) {
+  const scriptLines = node.readAloudScript ?? node.lines;
+  const lineAnchoredNotes = node.inlineNotes ?? [];
+
+  const notesForLine = (lineNumber: number) => lineAnchoredNotes.filter((note) => note.afterLine === lineNumber);
+
+  return (
+    <>
+      {notesForLine(0).map((note, index) => (
+        <p key={`${node.id}-inline-0-${index}`} className={inlineToneClass(note.tone)}>
+          {note.text}
+        </p>
+      ))}
+
+      {scriptLines.map((line, lineIndex) => {
+        const lineNumber = lineIndex + 1;
+        const isParenthetical = line.trim().startsWith("（") && line.trim().endsWith("）");
+
+        return (
+          <div key={`${node.id}-${lineIndex}`} className="space-y-1.5">
+            <p className={isParenthetical ? "text-sm leading-7 text-muted-foreground" : "text-[1.02rem] leading-8 text-foreground md:text-[1.08rem]"}>
+              {line}
+            </p>
+
+            {notesForLine(lineNumber).map((note, noteIndex) => (
+              <p key={`${node.id}-inline-${lineNumber}-${noteIndex}`} className={inlineToneClass(note.tone)}>
+                {note.text}
+              </p>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function inlineToneClass(tone?: "branch" | "operator" | "condition" | "warning") {
+  if (tone === "branch") {
+    return "text-sm leading-7 text-primary";
+  }
+
+  if (tone === "warning") {
+    return "text-sm leading-7 font-medium text-amber-700";
+  }
+
+  if (tone === "operator") {
+    return "text-sm leading-7 text-muted-foreground";
+  }
+
+  return "text-sm leading-7 text-muted-foreground";
+}
+
+function InlineNotesBlock({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items?: string[];
+  tone: "primary" | "muted" | "warning";
+}) {
+  if (!items || items.length === 0) {
+    return null;
+  }
+
+  const toneClass =
+    tone === "primary"
+      ? "border-primary/30 bg-primary/5"
+      : tone === "warning"
+        ? "border-amber-300/60 bg-amber-50/60"
+        : "border-zinc-900/10 bg-muted/20";
+
+  return (
+    <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
+      <p className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</p>
+      <ul className="space-y-1.5">
+        {items.map((item, index) => (
+          <li key={`${title}-${index}`} className="text-sm leading-relaxed text-foreground">
+            {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

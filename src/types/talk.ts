@@ -18,6 +18,16 @@ export interface TalkNode {
   kind: NodeKind;
   reactionLabel?: string;
   lines: string[];
+  readAloudScript?: string[];
+  branchNotes?: string[];
+  operatorNotes?: string[];
+  conditions?: string[];
+  doNotRead?: string[];
+  inlineNotes?: {
+    afterLine: number;
+    text: string;
+    tone?: "branch" | "operator" | "condition" | "warning";
+  }[];
   intent: string;
   ngExamples: string[];
   tips: string[];

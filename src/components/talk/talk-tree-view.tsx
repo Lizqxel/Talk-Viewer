@@ -104,6 +104,7 @@ function TreeNodeCard({
   activeNodeId: string | null;
   depth: number;
 }) {
+  const scriptLines = node.readAloudScript ?? node.lines;
   const childNodes = node.nextNodeIds
     .map((nodeId) => nodeMap.get(nodeId))
     .filter((child): child is TalkNode => Boolean(child));
@@ -115,7 +116,7 @@ function TreeNodeCard({
     const copyText = [
       `タイトル: ${node.title}`,
       "セリフ:",
-      ...node.lines,
+      ...scriptLines,
       `意図: ${node.intent}`,
       `NG例: ${node.ngExamples.join(" / ")}`,
       `コツ: ${node.tips.join(" / ")}`,
@@ -176,7 +177,7 @@ function TreeNodeCard({
               <div className="rounded-lg border bg-muted/30 p-3">
                 <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">セリフ</p>
                 <div className="space-y-2">
-                  {node.lines.map((line) => (
+                  {scriptLines.map((line) => (
                     <p key={line} className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
                       {line}
                     </p>
