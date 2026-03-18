@@ -1,11 +1,27 @@
-export type TalkSectionKind = "firstContact" | "counter" | "closing" | "ng";
+export type TalkDifficulty = "初級" | "中級" | "上級";
 
-export interface TalkSection {
+export type TalkProduct = "hikari" | "denki" | "wifi" | "oa";
+
+export type TalkScene =
+  | "kojin"
+  | "hojin"
+  | "objection"
+  | "remind"
+  | "reception"
+  | "negotiation";
+
+export type NodeKind = "opening" | "hearing" | "proposal" | "objection" | "closing" | "note";
+
+export interface TalkNode {
   id: string;
-  kind: TalkSectionKind;
   title: string;
-  intent: string;
+  kind: NodeKind;
+  reactionLabel?: string;
   lines: string[];
+  intent: string;
+  ngExamples: string[];
+  tips: string[];
+  nextNodeIds: string[];
 }
 
 export interface Talk {
@@ -13,19 +29,23 @@ export interface Talk {
   title: string;
   categoryId: string;
   categoryName: string;
+  product: TalkProduct;
+  scene: TalkScene;
   summary: string;
   targetPersona: string;
-  difficulty: "初級" | "中級" | "上級";
+  difficulty: TalkDifficulty;
   tags: string[];
   updatedAt: string;
-  sections: TalkSection[];
+  rootNodeIds: string[];
+  nodes: TalkNode[];
 }
 
 export interface TalkCategory {
   id: string;
   name: string;
   description: string;
-  talkCount: number;
+  product: TalkProduct;
+  scene: TalkScene;
 }
 
 export interface Announcement {
@@ -45,8 +65,23 @@ export interface QuickLink {
 
 export interface RecentUpdate {
   id: string;
+  talkId?: string;
   title: string;
   detail: string;
   date: string;
   type: "talk" | "notice" | "system";
+}
+
+export interface FeaturedItem {
+  id: string;
+  talkId: string;
+  reason: string;
+  rank: number;
+}
+
+export interface DailyHighlight {
+  id: string;
+  title: string;
+  detail: string;
+  priority: "high" | "medium";
 }

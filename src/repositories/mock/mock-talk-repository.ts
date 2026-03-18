@@ -1,8 +1,13 @@
 import {
   announcements,
+  dailyHighlights,
+  featuredItems,
+  productLabels,
   quickLinks,
   recentUpdates,
+  sceneLabels,
   talkCategories,
+  talkTags,
   talks,
 } from "@/data/mock/talks";
 import { type TalkRepository } from "@/repositories/talk-repository";
@@ -12,8 +17,16 @@ export class MockTalkRepository implements TalkRepository {
     return announcements;
   }
 
+  async getDailyHighlights() {
+    return dailyHighlights;
+  }
+
   async getQuickLinks() {
     return quickLinks;
+  }
+
+  async getFeaturedItems() {
+    return featuredItems;
   }
 
   async getRecentUpdates() {
@@ -22,6 +35,18 @@ export class MockTalkRepository implements TalkRepository {
 
   async getTalkCategories() {
     return talkCategories;
+  }
+
+  async getTalkTags() {
+    return talkTags;
+  }
+
+  async getProductLabels() {
+    return productLabels;
+  }
+
+  async getSceneLabels() {
+    return sceneLabels;
   }
 
   async getTalkList() {

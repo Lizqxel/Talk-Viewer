@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ChevronLeft, UserRound } from "lucide-react";
+import { ChevronLeft, FolderTree, UserRound } from "lucide-react";
 import { notFound } from "next/navigation";
 
-import { TalkSectionsAccordion } from "@/components/talk/talk-sections-accordion";
+import { TalkTreeView } from "@/components/talk/talk-tree-view";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { talkRepository } from "@/lib/repository";
@@ -13,7 +13,12 @@ interface TalkDetailPageProps {
 
 export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
   const { id } = await params;
-  const talk = await talkRepository.getTalkById(id);
+
+  const [talk, productLabels, sceneLabels] = await Promise.all([
+    talkRepository.getTalkById(id),
+    talkRepository.getProductLabels(),
+    talkRepository.getSceneLabels(),
+  ]);
 
   if (!talk) {
     notFound();
@@ -32,8 +37,9 @@ export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
 
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{talk.categoryName}</Badge>
-            <Badge variant="secondary">{talk.difficulty}</Badge>
+            <Badge variant="secondary">{productLabels[talk.product]}</Badge>
+            <Badge variant="outline">{sceneLabels[talk.scene]}</Badge>
+            <Badge variant="outline">{talk.difficulty}</Badge>
             <span className="text-xs text-muted-foreground">最終更新: {talk.updatedAt}</span>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{talk.title}</h1>
@@ -58,8 +64,11 @@ export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
       </Card>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">トークセクション</h2>
-        <TalkSectionsAccordion sections={talk.sections} />
+        <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
+          <FolderTree className="size-5 text-primary" aria-hidden="true" />
+          トークツリー
+        </h2>
+        <TalkTreeView nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
       </section>
     </div>
   );
