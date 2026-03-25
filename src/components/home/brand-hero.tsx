@@ -1,17 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, BellRing, Sparkles } from "lucide-react";
+import { ArrowRight, BellRing } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { type Announcement, type DailyHighlight } from "@/types/talk";
 
-interface BrandHeroProps {
-  importantNotice: Announcement | null;
-  highlights: DailyHighlight[];
-}
-
-export function BrandHero({ importantNotice, highlights }: BrandHeroProps) {
+export function BrandHero() {
   return (
     <section className="home-hero-frame relative min-h-[88vh] overflow-hidden rounded-3xl border border-zinc-900/15 xl:min-h-[92vh]">
       <div className="home-hero-base absolute inset-0" aria-hidden="true" />
@@ -72,31 +66,12 @@ export function BrandHero({ importantNotice, highlights }: BrandHeroProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 pt-4">
-              {importantNotice ? (
-                <div className="rounded-lg border border-primary/35 bg-primary/14 px-3 py-2.5 transition-colors hover:bg-primary/20">
-                  <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-zinc-700 uppercase">
-                    <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
-                    Priority
-                  </p>
-                  <p className="text-sm font-semibold text-zinc-900">{importantNotice.title}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-zinc-700">{importantNotice.body}</p>
-                </div>
-              ) : null}
-
-              {highlights.slice(0, 2).map((highlight) => (
-                <div
-                  key={highlight.id}
-                  className="rounded-lg border border-zinc-900/12 bg-white/80 px-3 py-2.5 transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:bg-primary/8"
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-zinc-900">{highlight.title}</p>
-                    <Badge variant={highlight.priority === "high" ? "default" : "outline"} className={highlight.priority === "high" ? "text-zinc-900" : "border-zinc-900/20"}>
-                      {highlight.priority === "high" ? "HIGH" : "MED"}
-                    </Badge>
-                  </div>
-                  <p className="text-xs leading-relaxed text-zinc-700">{highlight.detail}</p>
-                </div>
-              ))}
+              <div className="rounded-lg border border-primary/35 bg-primary/14 px-3 py-2.5">
+                <p className="text-sm font-semibold text-zinc-900">ここには本日の重要情報が入ります</p>
+              </div>
+              <div className="rounded-lg border border-zinc-900/12 bg-white/80 px-3 py-2.5">
+                <p className="text-sm font-semibold text-zinc-900">ここにはハイライト情報が入ります</p>
+              </div>
             </CardContent>
           </Card>
         </div>

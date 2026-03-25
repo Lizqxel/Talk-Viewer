@@ -38,6 +38,7 @@ export function TalksExplorer({
   productLabels,
   sceneLabels,
 }: TalksExplorerProps) {
+  const showFilters = false;
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [selectedProducts, setSelectedProducts] = useState<TalkProduct[]>([]);
@@ -119,11 +120,13 @@ export function TalksExplorer({
     setter(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
   };
 
+  const layoutClassName = showFilters ? "grid gap-4 lg:grid-cols-[280px_1fr]" : "space-y-3";
+
   return (
     <div className="space-y-5">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">トーク一覧</h1>
-        <p className="text-sm text-muted-foreground">用途がひと目で分かるよう、商材・シーン・難易度で絞り込んで確認できます。</p>
+        <p className="text-sm text-muted-foreground">用途ごとにトークを一覧で確認できます。</p>
       </section>
 
       <section className="rounded-xl border bg-card p-4 md:p-5">
@@ -166,88 +169,90 @@ export function TalksExplorer({
         </div>
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <aside className="space-y-4 lg:sticky lg:top-20 lg:h-fit">
-          <Card className="border-border/80">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <SlidersHorizontal className="size-4 text-primary" aria-hidden="true" />
-                フィルター
-              </CardTitle>
-              <CardDescription>必要なトークだけに絞り込み</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <FilterBlock title="カテゴリ">
-                {categories.map((category) => (
-                  <FilterChip
-                    key={category.id}
-                    selected={selectedCategoryId === category.id}
-                    onClick={() =>
-                      setSelectedCategoryId((current) =>
-                        current === category.id ? undefined : category.id,
-                      )
-                    }
-                    label={category.name}
-                  />
-                ))}
-              </FilterBlock>
+      <div className={layoutClassName}>
+        {showFilters ? (
+          <aside className="space-y-4 lg:sticky lg:top-20 lg:h-fit">
+            <Card className="border-border/80">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <SlidersHorizontal className="size-4 text-primary" aria-hidden="true" />
+                  フィルター
+                </CardTitle>
+                <CardDescription>必要なトークだけに絞り込み</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <FilterBlock title="カテゴリ">
+                  {categories.map((category) => (
+                    <FilterChip
+                      key={category.id}
+                      selected={selectedCategoryId === category.id}
+                      onClick={() =>
+                        setSelectedCategoryId((current) =>
+                          current === category.id ? undefined : category.id,
+                        )
+                      }
+                      label={category.name}
+                    />
+                  ))}
+                </FilterBlock>
 
-              <FilterBlock title="商材">
-                {(Object.keys(productLabels) as TalkProduct[]).map((product) => (
-                  <FilterChip
-                    key={product}
-                    selected={selectedProducts.includes(product)}
-                    onClick={() =>
-                      toggleArrayItem(selectedProducts, product, setSelectedProducts)
-                    }
-                    label={productLabels[product]}
-                  />
-                ))}
-              </FilterBlock>
+                <FilterBlock title="商材">
+                  {(Object.keys(productLabels) as TalkProduct[]).map((product) => (
+                    <FilterChip
+                      key={product}
+                      selected={selectedProducts.includes(product)}
+                      onClick={() =>
+                        toggleArrayItem(selectedProducts, product, setSelectedProducts)
+                      }
+                      label={productLabels[product]}
+                    />
+                  ))}
+                </FilterBlock>
 
-              <FilterBlock title="シーン">
-                {(Object.keys(sceneLabels) as TalkScene[]).map((scene) => (
-                  <FilterChip
-                    key={scene}
-                    selected={selectedScenes.includes(scene)}
-                    onClick={() => toggleArrayItem(selectedScenes, scene, setSelectedScenes)}
-                    label={sceneLabels[scene]}
-                  />
-                ))}
-              </FilterBlock>
+                <FilterBlock title="シーン">
+                  {(Object.keys(sceneLabels) as TalkScene[]).map((scene) => (
+                    <FilterChip
+                      key={scene}
+                      selected={selectedScenes.includes(scene)}
+                      onClick={() => toggleArrayItem(selectedScenes, scene, setSelectedScenes)}
+                      label={sceneLabels[scene]}
+                    />
+                  ))}
+                </FilterBlock>
 
-              <FilterBlock title="難易度">
-                {difficultyOptions.map((difficulty) => (
-                  <FilterChip
-                    key={difficulty}
-                    selected={selectedDifficulties.includes(difficulty)}
-                    onClick={() =>
-                      toggleArrayItem(selectedDifficulties, difficulty, setSelectedDifficulties)
-                    }
-                    label={difficulty}
-                  />
-                ))}
-              </FilterBlock>
+                <FilterBlock title="難易度">
+                  {difficultyOptions.map((difficulty) => (
+                    <FilterChip
+                      key={difficulty}
+                      selected={selectedDifficulties.includes(difficulty)}
+                      onClick={() =>
+                        toggleArrayItem(selectedDifficulties, difficulty, setSelectedDifficulties)
+                      }
+                      label={difficulty}
+                    />
+                  ))}
+                </FilterBlock>
 
-              <FilterBlock title="タグ">
-                {tags.map((tag) => (
-                  <FilterChip
-                    key={tag}
-                    selected={selectedTags.includes(tag)}
-                    onClick={() => toggleArrayItem(selectedTags, tag, setSelectedTags)}
-                    label={tag}
-                  />
-                ))}
-              </FilterBlock>
+                <FilterBlock title="タグ">
+                  {tags.map((tag) => (
+                    <FilterChip
+                      key={tag}
+                      selected={selectedTags.includes(tag)}
+                      onClick={() => toggleArrayItem(selectedTags, tag, setSelectedTags)}
+                      label={tag}
+                    />
+                  ))}
+                </FilterBlock>
 
-              {hasFilters ? (
-                <Button type="button" variant="outline" className="w-full" onClick={clearFilters}>
-                  条件をクリア
-                </Button>
-              ) : null}
-            </CardContent>
-          </Card>
-        </aside>
+                {hasFilters ? (
+                  <Button type="button" variant="outline" className="w-full" onClick={clearFilters}>
+                    条件をクリア
+                  </Button>
+                ) : null}
+              </CardContent>
+            </Card>
+          </aside>
+        ) : null}
 
         <section className="space-y-3">
           <div className="flex items-center justify-between rounded-xl border bg-card p-3">

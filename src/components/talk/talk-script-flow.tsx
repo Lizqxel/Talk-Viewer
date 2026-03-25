@@ -29,33 +29,33 @@ type ScriptSection = {
 const hikariScriptSectionDefs = [
   {
     id: "opening",
-    title: "オープニング",
-    nodeIds: ["hikari-open"],
+    title: "アプローチ",
+    nodeIds: ["hikari-hojin-opening", "hikari-open"],
   },
   {
     id: "requirement",
-    title: "要件説明",
-    nodeIds: ["hikari-purpose"],
+    title: "主旨 / メリット説明",
+    nodeIds: ["hikari-hojin-purpose", "hikari-purpose"],
   },
   {
-    id: "hearing",
-    title: "現状確認(ヒアリング)",
-    nodeIds: ["hikari-age-check", "hikari-confirm-1"],
+    id: "age-check",
+    title: "年齢確認",
+    nodeIds: ["hikari-hojin-age-check", "hikari-age-check"],
   },
   {
     id: "benefit",
-    title: "ベネフィット提示",
-    nodeIds: ["hikari-benefit"],
+    title: "料金説明/テストクロージング",
+    nodeIds: ["hikari-hojin-benefit", "hikari-benefit"],
   },
   {
-    id: "appointment-qualification",
-    title: "アポ診断",
-    nodeIds: ["hikari-price-closing", "hikari-family-consent"],
+    id: "hearing",
+    title: "ご本人様確認",
+    nodeIds: ["hikari-hojin-hearing", "hikari-confirm-1"],
   },
   {
     id: "closing",
-    title: "クロージング(アポ獲得次)",
-    nodeIds: ["hikari-next-steps", "hikari-contact", "hikari-double-check"],
+    title: "流れ説明 / 二重確認案内",
+    nodeIds: ["hikari-hojin-closing", "hikari-next-steps", "hikari-contact", "hikari-double-check"],
   },
 ] as const;
 
@@ -152,6 +152,13 @@ const outReplyByNodeId: Record<string, OutReply[]> = {
         "ありがとうございます。可能な時間帯を教えていただければ、確認担当へ共有してその時間帯に優先してご連絡します。",
     },
   ],
+  "hikari-hojin-closing": [
+    {
+      out: "何の連絡？",
+      reply:
+        "私の内容に伝え間違い、聞き間違いがないかの二重確認のご連絡になりまして、大まかな工事の希望日などもお伺いしてますから、すみませんがそのご対応だけお願いしております！",
+    },
+  ],
 };
 
 function renderLineWithCommaBreak(text: string, keyPrefix: string) {
@@ -206,7 +213,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
         nodes: sectionNodes,
       };
     })
-    .filter((section) => section.lines.length > 0);
+    .filter((section) => (section.nodes?.length ?? 0) > 0);
 
   const displaySections: ScriptSection[] =
     sections.length > 0
@@ -219,7 +226,8 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
           nodes: [node],
         }));
 
-  const [openSectionId, setOpenSectionId] = useState<string | null>(displaySections[0]?.id ?? null);
+  const [manualOpenSectionIds, setManualOpenSectionIds] = useState<string[]>([]);
+  const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(displaySections[0]?.id ?? null);
 
   if (!rootNodeId) {
     return null;
@@ -234,7 +242,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
         className="relative overflow-hidden rounded-xl border border-zinc-900/12 bg-card p-3"
       >
         <div className="absolute top-0 right-0 h-10 w-28 bg-primary/25 [clip-path:polygon(28%_0,100%_0,100%_100%,0_100%)]" aria-hidden="true" />
-        <p className="text-sm text-muted-foreground">左側は台本を通しで読める表示です。アウト返しは右側の補助パネルで必要な時だけ開いて確認してください。</p>
+        <p className="text-sm text-muted-foreground">スクロール中は該当セクションのアウト返しを一時表示し、手動で開いたセクションだけ開いた状態を保持します。</p>
       </motion.div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
@@ -250,7 +258,10 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
                 initial={false}
                 animate={{ opacity: 1, y: 0 }}
                 viewport={{ once: false, amount: 0.42 }}
-                onViewportEnter={() => setOpenSectionId(section.id)}
+                onViewportEnter={() => setAutoOpenSectionId(section.id)}
+                onViewportLeave={() =>
+                  setAutoOpenSectionId((current) => (current === section.id ? null : current))
+                }
                 transition={{ duration: 0.35, ease: "easeOut", delay: index * 0.03 }}
               >
                 <div className="mb-3 flex items-center gap-2">
@@ -263,15 +274,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
                   className="relative space-y-3 overflow-hidden rounded-lg border border-zinc-900/10 bg-background p-4 md:p-5"
                 >
                   <div className="absolute inset-y-0 left-0 w-1 bg-primary/80" aria-hidden="true" />
-                  {sections.length > 0 ? (
-                    section.lines.map((line, lineIndex) => (
-                      <p key={`${section.id}-${lineIndex}`} className="text-[1.02rem] leading-8 text-foreground [text-wrap:pretty] md:text-[1.08rem]">
-                        {renderLineWithCommaBreak(line, `${section.id}-${lineIndex}`)}
-                      </p>
-                    ))
-                  ) : (
-                    section.nodes?.map((node) => <RenderNodeScript key={node.id} node={node} />)
-                  )}
+                  {section.nodes?.map((node) => <RenderNodeScript key={node.id} node={node} />)}
                 </motion.div>
                 {index < displaySections.length - 1 ? <Separator className="mt-6" /> : null}
               </motion.section>
@@ -280,7 +283,18 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
         </Card>
 
         <div className="xl:sticky xl:top-20">
-          <OutReplyPanel sections={displaySections} openSectionId={openSectionId} onOpenSectionChange={setOpenSectionId} />
+          <OutReplyPanel
+            sections={displaySections}
+            manualOpenSectionIds={manualOpenSectionIds}
+            autoOpenSectionId={autoOpenSectionId}
+            onOpenSectionToggle={(sectionId) =>
+              setManualOpenSectionIds((current) =>
+                current.includes(sectionId)
+                  ? current.filter((id) => id !== sectionId)
+                  : [...current, sectionId],
+              )
+            }
+          />
         </div>
       </div>
     </div>
@@ -303,18 +317,15 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
 
       {scriptLines.map((line, lineIndex) => {
         const lineNumber = lineIndex + 1;
-        const isParenthetical = line.trim().startsWith("（") && line.trim().endsWith("）");
 
         return (
           <div key={`${node.id}-${lineIndex}`} className="space-y-1.5">
-            <p className={isParenthetical ? "text-sm leading-7 text-muted-foreground" : "text-[1.02rem] leading-8 text-foreground md:text-[1.08rem]"}>
-              {line}
+            <p className="text-[1.02rem] leading-8 text-foreground md:text-[1.08rem]">
+              {renderLineWithCommaBreak(line, `${node.id}-line-${lineIndex}`)}
             </p>
 
             {notesForLine(lineNumber).map((note, noteIndex) => (
-              <p key={`${node.id}-inline-${lineNumber}-${noteIndex}`} className={inlineToneClass(note.tone)}>
-                {note.text}
-              </p>
+              <div key={`${node.id}-inline-${lineNumber}-${noteIndex}`}>{renderInlineNote(note.text, note.tone)}</div>
             ))}
           </div>
         );
@@ -325,32 +336,96 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
 
 function inlineToneClass(tone?: "branch" | "operator" | "condition" | "warning") {
   if (tone === "branch") {
-    return "text-sm leading-7 text-primary";
+    return "rounded-md border border-primary/30 bg-primary/10 px-3 py-2.5 text-sm leading-7 text-primary";
   }
 
   if (tone === "warning") {
-    return "text-sm leading-7 font-medium text-amber-700";
+    return "rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm leading-7 font-semibold text-amber-800";
   }
 
   if (tone === "operator") {
-    return "text-sm leading-7 text-muted-foreground";
+    return "rounded-md border border-zinc-900/10 bg-muted/25 px-3 py-2.5 text-sm leading-7 text-muted-foreground";
   }
 
-  return "text-sm leading-7 text-muted-foreground";
+  return "rounded-md border border-cyan-300/50 bg-cyan-50/70 px-3 py-2.5 text-sm leading-7 text-cyan-900";
+}
+
+function renderInlineNote(text: string, tone?: "branch" | "operator" | "condition" | "warning") {
+  if (tone === "branch" && text.includes("→")) {
+    const [trigger, action] = text.split("→", 2);
+
+    return (
+      <div className={inlineToneClass(tone)}>
+        <p className="mb-1 text-[11px] font-semibold tracking-wide uppercase">会話ガイド</p>
+        <div className="space-y-2">
+          <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
+            <p className="text-[11px] font-semibold text-primary/80">① 相手の反応</p>
+            <p className="text-sm leading-6 text-foreground">{trigger.trim()}</p>
+          </div>
+          <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
+            <p className="text-[11px] font-semibold text-primary/80">② 返しトーク</p>
+            <p className="text-sm leading-6 text-foreground">{action.trim()}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (tone === "condition" && text.includes("→")) {
+    const [trigger, action] = text.split("→", 2);
+
+    return (
+      <div className={inlineToneClass(tone)}>
+        <p className="mb-1 text-[11px] font-semibold tracking-wide uppercase">案内メモ</p>
+        <div className="space-y-2">
+          <div className="rounded border border-cyan-300/50 bg-background/70 px-2.5 py-1.5">
+            <p className="text-[11px] font-semibold text-cyan-800/80">この場合</p>
+            <p className="text-sm leading-6 text-foreground">{trigger.trim()}</p>
+          </div>
+          <div className="rounded border border-cyan-300/50 bg-background/70 px-2.5 py-1.5">
+            <p className="text-[11px] font-semibold text-cyan-800/80">伝える内容</p>
+            <p className="text-sm leading-6 text-foreground">{action.trim()}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (tone === "warning") {
+    return (
+      <div className={inlineToneClass(tone)}>
+        <p className="text-[11px] font-semibold tracking-wide uppercase">注意</p>
+        <p>{text}</p>
+      </div>
+    );
+  }
+
+  if (tone === "operator") {
+    return (
+      <div className={inlineToneClass(tone)}>
+        <p className="text-[11px] font-semibold tracking-wide uppercase">補足</p>
+        <p>{text}</p>
+      </div>
+    );
+  }
+
+  return <p className={inlineToneClass(tone)}>{text}</p>;
 }
 
 function OutReplyPanel({
   sections,
-  openSectionId,
-  onOpenSectionChange,
+  manualOpenSectionIds,
+  autoOpenSectionId,
+  onOpenSectionToggle,
 }: {
   sections: ScriptSection[];
-  openSectionId: string | null;
-  onOpenSectionChange: (sectionId: string | null) => void;
+  manualOpenSectionIds: string[];
+  autoOpenSectionId: string | null;
+  onOpenSectionToggle: (sectionId: string) => void;
 }) {
 
   return (
-    <Card className="overflow-hidden border-zinc-900/15 bg-card shadow-sm">
+    <Card className="flex max-h-[calc(100vh-6rem)] flex-col overflow-hidden border-zinc-900/15 bg-card shadow-sm">
       <div className="h-1.5 w-full bg-primary" aria-hidden="true" />
       <CardHeader className="border-b bg-muted/20 pb-3">
         <CardTitle className="flex items-center gap-2 text-base text-zinc-900">
@@ -358,9 +433,11 @@ function OutReplyPanel({
           アウト返し
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2 pt-4">
+      <CardContent className="space-y-2 overflow-y-auto pt-4 pr-2">
         {sections.map((section) => {
-          const isOpen = openSectionId === section.id;
+          const isOpen =
+            manualOpenSectionIds.includes(section.id) ||
+            autoOpenSectionId === section.id;
 
           return (
             <motion.div
@@ -371,7 +448,7 @@ function OutReplyPanel({
             >
               <button
                 type="button"
-                onClick={() => onOpenSectionChange(openSectionId === section.id ? null : section.id)}
+                onClick={() => onOpenSectionToggle(section.id)}
                 className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/30"
               >
                 <span className="text-sm font-medium text-zinc-900">{section.title}</span>
@@ -387,7 +464,7 @@ function OutReplyPanel({
 }
 
 function OutReplyTree({ entries }: { entries: OutReply[] }) {
-  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const [openIndexes, setOpenIndexes] = useState<number[]>([]);
 
   if (entries.length === 0) {
     return (
@@ -416,7 +493,13 @@ function OutReplyTree({ entries }: { entries: OutReply[] }) {
           <div key={`${entry.out}-${index}`} className="space-y-2">
             <button
               type="button"
-              onClick={() => setOpenIndex((current) => (current === index ? null : index))}
+              onClick={() =>
+                setOpenIndexes((current) =>
+                  current.includes(index)
+                    ? current.filter((item) => item !== index)
+                    : [...current, index],
+                )
+              }
               className="w-full rounded-md border border-zinc-900/10 bg-muted/20 px-3 py-2 text-left transition-colors hover:border-primary/45 hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">OUT</p>
@@ -424,7 +507,7 @@ function OutReplyTree({ entries }: { entries: OutReply[] }) {
             </button>
 
             <AnimatePresence initial={false}>
-              {openIndex === index ? (
+              {openIndexes.includes(index) ? (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
