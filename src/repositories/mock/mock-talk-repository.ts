@@ -10,7 +10,31 @@ import {
   talkTags,
   talks,
 } from "@/data/mock/talks";
+import { type Talk } from "@/types/talk";
 import { type TalkRepository } from "@/repositories/talk-repository";
+
+const allowedTalkIds = new Set([
+  "hikari-kojin-standard",
+  "hikari-hojin-standard",
+]);
+
+const talkTitleOverrides: Record<string, string> = {
+  "hikari-kojin-standard": "アナログ電話→NP 特殊ライトプラン変更トーク",
+  "hikari-hojin-standard": "光回線　法人トーク",
+};
+
+function toDisplayTalk(talk: Talk): Talk {
+  const overriddenTitle = talkTitleOverrides[talk.id];
+
+  if (!overriddenTitle) {
+    return talk;
+  }
+
+  return {
+    ...talk,
+    title: overriddenTitle,
+  };
+}
 
 export class MockTalkRepository implements TalkRepository {
   async getAnnouncements() {
@@ -34,7 +58,9 @@ export class MockTalkRepository implements TalkRepository {
   }
 
   async getTalkCategories() {
-    return talkCategories;
+    return talkCategories.filter((category) =>
+      talks.some((talk) => allowedTalkIds.has(talk.id) && talk.categoryId === category.id),
+    );
   }
 
   async getTalkTags() {
@@ -50,10 +76,18 @@ export class MockTalkRepository implements TalkRepository {
   }
 
   async getTalkList() {
-    return talks;
+    return talks
+      .filter((talk) => allowedTalkIds.has(talk.id))
+      .map((talk) => toDisplayTalk(talk));
   }
 
   async getTalkById(id: string) {
-    return talks.find((talk) => talk.id === id) ?? null;
+    const talk = talks.find((item) => item.id === id);
+
+    if (!talk || !allowedTalkIds.has(talk.id)) {
+      return null;
+    }
+
+    return toDisplayTalk(talk);
   }
 }
