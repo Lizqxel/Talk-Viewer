@@ -40,6 +40,22 @@ jobs:
             echo "NEXT_PUBLIC_BASE_PATH=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
           fi
 
+      - name: Set Public API URL
+        env:
+          NEXT_PUBLIC_TALK_API_URL: ${{ vars.NEXT_PUBLIC_TALK_API_URL }}
+        shell: bash
+        run: |
+          if [ -z "$NEXT_PUBLIC_TALK_API_URL" ]; then
+            echo "Repository variable NEXT_PUBLIC_TALK_API_URL is not set."
+            exit 1
+          fi
+
+          {
+            echo "NEXT_PUBLIC_TALK_API_URL<<EOF"
+            echo "$NEXT_PUBLIC_TALK_API_URL"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Install Dependencies
         run: npm ci
 

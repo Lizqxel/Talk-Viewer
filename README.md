@@ -25,6 +25,20 @@ NEXT_PUBLIC_TALK_API_URL=https://script.google.com/a/macros/bb-connection.com/s/
 
 ブラウザで `http://localhost:3000` を開いて確認します。
 
+### GitHub Pages デプロイ時の環境変数
+
+`NEXT_PUBLIC_TALK_API_URL` はビルド時に静的埋め込みされるため、`.env.local` だけでは GitHub Pages には反映されません。
+
+1. GitHub リポジトリの `Settings` -> `Secrets and variables` -> `Actions` -> `Variables` を開く
+2. `New repository variable` で以下を作成
+
+```text
+Name: NEXT_PUBLIC_TALK_API_URL
+Value: https://script.google.com/.../exec
+```
+
+設定後に `main` へ push すると、Actions の `Deploy To GitHub Pages` で変数を読み取ってビルドします。
+
 ### 補助コマンド
 
 ```bash
