@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, CornerDownRight, GitBranch, MessageCircleReply } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
+import { SectionPointAccordion } from "@/components/talk/section-point-accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { type TalkNode } from "@/types/talk";
@@ -35,7 +36,7 @@ const hikariScriptSectionDefs = [
   {
     id: "requirement",
     title: "主旨 / メリット説明",
-    nodeIds: ["hikari-hojin-purpose", "hikari-purpose", "hikari-benefit"],
+    nodeIds: ["hikari-hojin-purpose", "hikari-hojin-merit", "hikari-purpose", "hikari-benefit"],
   },
   {
     id: "age-check",
@@ -55,7 +56,7 @@ const hikariScriptSectionDefs = [
   {
     id: "closing",
     title: "流れ説明 / 二重確認案内",
-    nodeIds: ["hikari-hojin-closing", "hikari-next-steps", "hikari-contact", "hikari-double-check"],
+    nodeIds: ["hikari-hojin-next-steps", "hikari-hojin-double-check", "hikari-next-steps", "hikari-contact", "hikari-double-check"],
   },
 ] as const;
 
@@ -82,6 +83,12 @@ const outReplyByNodeId: Record<string, OutReply[]> = {
       out: "なんで急に連絡きたの？",
       reply:
         "ご案内の対象になっているお客様へ順次ご連絡しており、直近で切替費用のご負担がかからない受付枠があるため、このタイミングでご連絡しています。",
+    },
+  ],
+  "hikari-hojin-purpose": [
+    {
+      out: "反応が薄い・不安そう",
+      reply: "何かご不明な点とか、難しいこととかはございませんか？",
     },
   ],
   "hikari-benefit": [
@@ -111,6 +118,16 @@ const outReplyByNodeId: Record<string, OutReply[]> = {
       out: "固定電話あまり使ってないから迷う。",
       reply:
         "使う頻度が少ない方ほど基本料金の差が重要になるため、まずは条件だけ確認して不要なら見送りで大丈夫です。",
+    },
+  ],
+  "hikari-hojin-benefit": [
+    {
+      out: "はい",
+      reply: "あ、そうですよね〜",
+    },
+    {
+      out: "分からない",
+      reply: "そうですよね〜。ただあまり使わない方だとこのくらいですので、基本的には変わらないのですが",
     },
   ],
   "hikari-confirm-1": [
@@ -152,11 +169,11 @@ const outReplyByNodeId: Record<string, OutReply[]> = {
         "ありがとうございます。可能な時間帯を教えていただければ、確認担当へ共有してその時間帯に優先してご連絡します。",
     },
   ],
-  "hikari-hojin-closing": [
+  "hikari-hojin-double-check": [
     {
-      out: "何の連絡？",
+      out: "ない",
       reply:
-        "私の内容に伝え間違い、聞き間違いがないかの二重確認のご連絡になりまして、大まかな工事の希望日などもお伺いしてますから、すみませんがそのご対応だけお願いしております！",
+        "ありがとうございます！では一度お電話をお切りになって、次のご連絡をお待ちください。今後ともよろしくお願いいたします。",
     },
   ],
 };
@@ -386,6 +403,14 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
           </div>
         );
       })}
+
+      {node.sectionTips ? (
+        <SectionPointAccordion
+          value={`${node.id}-section-points`}
+          mindset={node.sectionTips.mindset}
+          skill={node.sectionTips.skill}
+        />
+      ) : null}
     </>
   );
 }
