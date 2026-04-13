@@ -194,6 +194,23 @@ function renderLineWithCommaBreak(text: string, keyPrefix: string) {
   ));
 }
 
+function tryParseArrowNote(text: string): { trigger: string; action: string } | null {
+  const arrow = text.includes("→") ? "→" : text.includes("->") ? "->" : null;
+  if (!arrow) {
+    return null;
+  }
+
+  const [triggerRaw, actionRaw] = text.split(arrow, 2);
+  const trigger = (triggerRaw ?? "").trim();
+  const action = (actionRaw ?? "").trim();
+
+  if (!trigger || !action) {
+    return null;
+  }
+
+  return { trigger, action };
+}
+
 export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
   const rootNodeId = rootNodeIds[0];
 
@@ -305,15 +322,56 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
   const scriptLines = node.readAloudScript ?? node.lines;
   const lineAnchoredNotes = node.inlineNotes ?? [];
 
+  const [openBranchIndexByLine, setOpenBranchIndexByLine] = useState<Record<number, number | null>>({});
+
   const notesForLine = (lineNumber: number) => lineAnchoredNotes.filter((note) => note.afterLine === lineNumber);
+
+  const renderNotes = (lineNumber: number) => {
+    const notes = notesForLine(lineNumber);
+
+    const branchArrowNotes = notes
+      .filter((note) => note.tone === "branch")
+      .map((note) => {
+        const parsed = tryParseArrowNote(note.text);
+        if (!parsed) {
+          return null;
+        }
+
+        return {
+          trigger: parsed.trigger,
+          action: parsed.action,
+        };
+      })
+      .filter((note): note is { trigger: string; action: string } => Boolean(note));
+
+    const remainingNotes = notes.filter((note) => !(note.tone === "branch" && Boolean(tryParseArrowNote(note.text))));
+    const openIndex = openBranchIndexByLine[lineNumber] ?? null;
+
+    return (
+      <>
+        {branchArrowNotes.length > 0 ? (
+          <BranchGuideInline
+            entries={branchArrowNotes}
+            openIndex={typeof openIndex === "number" ? openIndex : null}
+            onToggle={(index) =>
+              setOpenBranchIndexByLine((current) => ({
+                ...current,
+                [lineNumber]: current[lineNumber] === index ? null : index,
+              }))
+            }
+          />
+        ) : null}
+
+        {remainingNotes.map((note, noteIndex) => (
+          <div key={`${node.id}-inline-${lineNumber}-${noteIndex}`}>{renderInlineNote(note.text, note.tone)}</div>
+        ))}
+      </>
+    );
+  };
 
   return (
     <>
-      {notesForLine(0).map((note, index) => (
-        <p key={`${node.id}-inline-0-${index}`} className={inlineToneClass(note.tone)}>
-          {note.text}
-        </p>
-      ))}
+      {renderNotes(0)}
 
       {scriptLines.map((line, lineIndex) => {
         const lineNumber = lineIndex + 1;
@@ -324,13 +382,63 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
               {renderLineWithCommaBreak(line, `${node.id}-line-${lineIndex}`)}
             </p>
 
-            {notesForLine(lineNumber).map((note, noteIndex) => (
-              <div key={`${node.id}-inline-${lineNumber}-${noteIndex}`}>{renderInlineNote(note.text, note.tone)}</div>
-            ))}
+            {renderNotes(lineNumber)}
           </div>
         );
       })}
     </>
+  );
+}
+
+function BranchGuideInline({
+  entries,
+  openIndex,
+  onToggle,
+}: {
+  entries: { trigger: string; action: string }[];
+  openIndex: number | null;
+  onToggle: (index: number) => void;
+}) {
+  const openEntry = typeof openIndex === "number" ? entries[openIndex] : null;
+
+  return (
+    <div className={inlineToneClass("branch")}>
+      <p className="mb-1 text-[11px] font-semibold tracking-wide uppercase">会話ガイド</p>
+
+      <div className="space-y-2">
+        <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
+          <p className="text-[11px] font-semibold text-primary/80">① 相手の反応</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {entries.map((entry, index) => {
+              const isOpen = openIndex === index;
+
+              return (
+                <button
+                  key={`${entry.trigger}-${index}`}
+                  type="button"
+                  onClick={() => onToggle(index)}
+                  aria-expanded={isOpen}
+                  className={`rounded border px-2 py-1 text-sm leading-6 transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
+                    isOpen
+                      ? "border-primary/60 bg-primary/15 text-primary"
+                      : "border-primary/30 bg-background/70 text-foreground hover:bg-primary/8"
+                  }`}
+                >
+                  {entry.trigger}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {openEntry ? (
+          <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
+            <p className="text-[11px] font-semibold text-primary/80">② 返しトーク</p>
+            <p className="text-sm leading-6 text-foreground">{openEntry.action}</p>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -351,26 +459,6 @@ function inlineToneClass(tone?: "branch" | "operator" | "condition" | "warning")
 }
 
 function renderInlineNote(text: string, tone?: "branch" | "operator" | "condition" | "warning") {
-  if (tone === "branch" && text.includes("→")) {
-    const [trigger, action] = text.split("→", 2);
-
-    return (
-      <div className={inlineToneClass(tone)}>
-        <p className="mb-1 text-[11px] font-semibold tracking-wide uppercase">会話ガイド</p>
-        <div className="space-y-2">
-          <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
-            <p className="text-[11px] font-semibold text-primary/80">① 相手の反応</p>
-            <p className="text-sm leading-6 text-foreground">{trigger.trim()}</p>
-          </div>
-          <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
-            <p className="text-[11px] font-semibold text-primary/80">② 返しトーク</p>
-            <p className="text-sm leading-6 text-foreground">{action.trim()}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (tone === "condition" && text.includes("→")) {
     const [trigger, action] = text.split("→", 2);
 
