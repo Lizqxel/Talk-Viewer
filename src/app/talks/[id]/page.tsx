@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { TalkScriptFlow } from "@/components/talk/talk-script-flow";
 import { TalkTreeView } from "@/components/talk/talk-tree-view";
+import { ClosingManagerPanel } from "@/components/talk/closing-manager-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { talkRepository } from "@/lib/repository";
@@ -69,6 +70,10 @@ export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
           </div>
         </CardContent>
       </Card>
+
+      <div className="md:hidden">
+        <ClosingManagerPanel />
+      </div>
 
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
