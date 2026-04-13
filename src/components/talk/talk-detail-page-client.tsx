@@ -5,6 +5,7 @@ import { ChevronLeft, FilePenLine, FolderTree, UserRound } from "lucide-react";
 
 import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
+import { ClosingManagerPanel } from "@/components/talk/closing-manager-panel";
 import { TalkScriptFlow } from "@/components/talk/talk-script-flow";
 import { TalkTreeView } from "@/components/talk/talk-tree-view";
 import { Badge } from "@/components/ui/badge";
@@ -89,6 +90,10 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
           </div>
         </CardContent>
       </Card>
+
+      <div className="md:hidden">
+        <ClosingManagerPanel />
+      </div>
 
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
