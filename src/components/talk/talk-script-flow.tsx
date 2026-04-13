@@ -35,7 +35,7 @@ const hikariScriptSectionDefs = [
   {
     id: "requirement",
     title: "主旨 / メリット説明",
-    nodeIds: ["hikari-hojin-purpose", "hikari-purpose"],
+    nodeIds: ["hikari-hojin-purpose", "hikari-purpose", "hikari-benefit"],
   },
   {
     id: "age-check",
@@ -45,7 +45,7 @@ const hikariScriptSectionDefs = [
   {
     id: "benefit",
     title: "料金説明/テストクロージング",
-    nodeIds: ["hikari-hojin-benefit", "hikari-benefit"],
+    nodeIds: ["hikari-hojin-benefit", "hikari-price-closing"],
   },
   {
     id: "hearing",
