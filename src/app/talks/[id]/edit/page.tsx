@@ -1,7 +1,7 @@
-import { TalkDetailPageClient } from "@/components/talk/talk-detail-page-client";
+import { TalkEditorPageClient } from "@/components/talk/talk-editor-page-client";
 import { talkRepository } from "@/lib/repository";
 
-interface TalkDetailPageProps {
+interface TalkEditPageProps {
   params: Promise<{ id: string }>;
 }
 
@@ -10,7 +10,7 @@ export async function generateStaticParams() {
   return talks.map((talk) => ({ id: talk.id }));
 }
 
-export default async function TalkDetailPage({ params }: TalkDetailPageProps) {
+export default async function TalkEditPage({ params }: TalkEditPageProps) {
   const { id } = await params;
-  return <TalkDetailPageClient talkId={id} />;
+  return <TalkEditorPageClient talkId={id} />;
 }

@@ -9,6 +9,7 @@
     "build": "next build",
     "build:web": "next build",
     "start": "next start",
+    "migrate:talks": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-talk-migration.ps1",
     "electron:preview": "npm run build:web && electron .",
     "dist:win": "npm run build:web && electron-builder --win nsis",
     "lint": "eslint",

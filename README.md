@@ -17,6 +17,12 @@ npm install
 npm run dev
 ```
 
+`.env.local` を作成し、Apps Script の Web アプリURLを設定します。
+
+```bash
+NEXT_PUBLIC_TALK_API_URL=https://script.google.com/a/macros/bb-connection.com/s/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec
+```
+
 ブラウザで `http://localhost:3000` を開いて確認します。
 
 ### 補助コマンド
@@ -70,3 +76,28 @@ src/
 4. **AI連携**
 	 - 架電ログ要約・改善提案・NG検知を段階導入
 	 - トークセクション単位の改善履歴を保持
+
+## Apps Script 連携
+
+- Apps Script のサンプル実装は `docs/apps-script-webapp-template.gs` を参照
+- Web アプリ設定は「実行ユーザー: アクセスしているユーザー」を推奨
+- 「アクセスできるユーザー」は運用時に `bb-connection.com` ドメイン内に限定
+- フロントは起動時に `action=bootstrap` でトークデータを取得
+
+### 編集機能
+
+- トーク詳細ページで `canEdit=true` のユーザーにのみ「編集」ボタンを表示
+- 編集ページは `/talks/[id]/edit` で、JSON編集後に保存すると `doPost(action=updateTalk)` で反映
+
+### 一括移行（モック -> Talksシート）
+
+- 一括投入UIは恒常運用対象外のため、通常画面からは非表示
+- 初回投入はターミナルで以下を実行
+
+```bash
+npm run dev
+npm run migrate:talks
+```
+
+- `migrate:talks` は内部の投入ページを自動で開き、`autorun=1` で投入処理を開始
+- 内部実装は `src/lib/talk-migration.ts` を使用

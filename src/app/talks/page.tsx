@@ -1,23 +1,27 @@
+"use client";
+
 import { TalksExplorer } from "@/components/talk/talks-explorer";
-import { talkRepository } from "@/lib/repository";
+import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
+import { ApiStatusCard } from "@/components/shared/api-status-card";
+import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
 
-export default async function TalksPage() {
+export default function TalksPage() {
+  const { data, error, isLoading, isFallback, reload } = useTalkBootstrap();
 
-  const [talks, categories, tags, productLabels, sceneLabels] = await Promise.all([
-    talkRepository.getTalkList(),
-    talkRepository.getTalkCategories(),
-    talkRepository.getTalkTags(),
-    talkRepository.getProductLabels(),
-    talkRepository.getSceneLabels(),
-  ]);
+  if (isLoading || (!data && error) || !data) {
+    return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
+  }
 
   return (
-    <TalksExplorer
-      talks={talks}
-      categories={categories}
-      tags={tags}
-      productLabels={productLabels}
-      sceneLabels={sceneLabels}
-    />
+    <div className="space-y-4">
+      {isFallback ? <ApiFallbackNotice onRetry={() => void reload()} reason={error?.message} /> : null}
+      <TalksExplorer
+        talks={data.talks}
+        categories={data.talkCategories}
+        tags={data.talkTags}
+        productLabels={data.productLabels}
+        sceneLabels={data.sceneLabels}
+      />
+    </div>
   );
 }
