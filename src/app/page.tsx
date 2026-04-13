@@ -1,39 +1,45 @@
+"use client";
+
 import {
   BellRing,
   Megaphone,
 } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 
 import { BrandHero } from "@/components/home/brand-hero";
 import { Reveal, StaggerGrid, StaggerItem } from "@/components/motion/motion-primitives";
+import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
+import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { talkRepository } from "@/lib/repository";
+import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
 
-export default async function HomePage() {
-  const [
-    featuredItems,
-    talks,
-    productLabels,
-    sceneLabels,
-  ] = await Promise.all([
-    talkRepository.getFeaturedItems(),
-    talkRepository.getTalkList(),
-    talkRepository.getProductLabels(),
-    talkRepository.getSceneLabels(),
-  ]);
+export default function HomePage() {
+  const { data, error, isLoading, isFallback, reload } = useTalkBootstrap();
 
-  const featuredTalkCards = featuredItems
-    .sort((a, b) => a.rank - b.rank)
-    .map((item) => {
-      const talk = talks.find((talkItem) => talkItem.id === item.talkId);
-      return talk ? { ...item, talk } : null;
-    })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const featuredTalkCards = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+
+    return [...data.featuredItems]
+      .sort((a, b) => a.rank - b.rank)
+      .map((item) => {
+        const talk = data.talks.find((talkItem) => talkItem.id === item.talkId);
+        return talk ? { ...item, talk } : null;
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }, [data]);
+
+  if (isLoading || (!data && error) || !data) {
+    return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
+  }
 
   return (
     <div className="space-y-8">
+      {isFallback ? <ApiFallbackNotice onRetry={() => void reload()} reason={error?.message} /> : null}
       <BrandHero />
 
       <Reveal>
@@ -77,10 +83,10 @@ export default async function HomePage() {
                         <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{item.reason}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Badge variant="outline" className="border-zinc-900/20 bg-muted/30">
-                            {productLabels[item.talk.product]}
+                            {data.productLabels[item.talk.product]}
                           </Badge>
                           <Badge variant="outline" className="border-zinc-900/20 bg-muted/30">
-                            {sceneLabels[item.talk.scene]}
+                            {data.sceneLabels[item.talk.scene]}
                           </Badge>
                         </div>
                       </div>
