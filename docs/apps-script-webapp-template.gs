@@ -4,6 +4,7 @@
  * Required Script Properties:
  * - SPREADSHEET_ID
  * - ALLOWED_DOMAIN  (example: bb-connection.com)
+ * - ALLOWED_EMAILS  (optional, comma-separated emails)
  * - TALKS_SHEET     (default: Talks)
  * - EDITORS_SHEET   (default: Editors)
  * - AUDIT_SHEET     (default: AuditLog)
@@ -20,7 +21,7 @@ function doGet(e) {
         ok: false,
         error: {
           code: "FORBIDDEN_DOMAIN",
-          message: "社内ドメインアカウントのみアクセス可能です",
+          message: "許可されたアカウントのみアクセス可能です",
         },
       }, 403, callback);
     }
@@ -67,7 +68,7 @@ function doPost(e) {
         ok: false,
         error: {
           code: "FORBIDDEN_DOMAIN",
-          message: "社内ドメインアカウントのみアクセス可能です",
+          message: "許可されたアカウントのみアクセス可能です",
         },
       }, 403);
     }
@@ -340,12 +341,31 @@ function appendAudit_(action, talkId, actorEmail, result, detail) {
 }
 
 function isDomainAllowed_(email) {
+  const normalizedEmail = String(email || "").toLowerCase().trim();
+  if (!normalizedEmail) {
+    return false;
+  }
+
+  const allowedEmailsText = prop_("ALLOWED_EMAILS", "");
+  const allowedEmails = allowedEmailsText
+    .split(",")
+    .map(function (item) {
+      return String(item || "").toLowerCase().trim();
+    })
+    .filter(function (item) {
+      return item !== "";
+    });
+
+  if (allowedEmails.indexOf(normalizedEmail) !== -1) {
+    return true;
+  }
+
   const domain = prop_("ALLOWED_DOMAIN", "").toLowerCase().trim();
   if (!domain) {
     return false;
   }
 
-  const match = String(email || "").toLowerCase().trim().match(/@(.+)$/);
+  const match = normalizedEmail.match(/@(.+)$/);
   if (!match) {
     return false;
   }

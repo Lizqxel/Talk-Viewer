@@ -66,9 +66,6 @@ export class TalkPortalApiError extends Error {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_TALK_API_URL?.trim() ?? "";
-const ALLOWED_EMAIL_DOMAIN = (process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN ?? "bb-connection.com")
-  .replace(/^@/, "")
-  .toLowerCase();
 
 export const DEFAULT_PRODUCT_LABELS: Record<TalkProduct, string> = {
   hikari: "光回線",
@@ -295,29 +292,12 @@ function assertEnvelopeOk(raw: unknown, fallbackMessage: string) {
   }
 }
 
-function isAllowedViewer(user?: TalkPortalUser) {
-  const email = user?.email?.toLowerCase().trim() ?? "";
-  if (!email) {
-    return false;
-  }
-
-  return email.endsWith(`@${ALLOWED_EMAIL_DOMAIN}`);
-}
-
 function assertAllowedViewer(payload: TalkBootstrapPayload) {
   if (!payload.user?.email) {
     throw new TalkPortalApiError(
-      "ユーザー認証情報を取得できませんでした。bb-connection.comアカウントで再ログインしてください。",
+      "ユーザー認証情報を取得できませんでした。許可されたGoogleアカウントで再ログインしてください。",
       401,
       "UNAUTHENTICATED_USER",
-    );
-  }
-
-  if (!isAllowedViewer(payload.user)) {
-    throw new TalkPortalApiError(
-      `@${ALLOWED_EMAIL_DOMAIN} アカウントのみアクセス可能です。`,
-      403,
-      "FORBIDDEN_DOMAIN",
     );
   }
 }
@@ -332,7 +312,7 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
   const trimmed = bodyText.trim();
   if (trimmed.startsWith("<!DOCTYPE html") || trimmed.startsWith("<html") || trimmed.includes("ServiceLogin")) {
     throw new TalkPortalApiError(
-      "Google認証ページへリダイレクトされました。bb-connection.comアカウントで再ログインして再試行してください。",
+      "Google認証ページへリダイレクトされました。許可されたGoogleアカウントで再ログインして再試行してください。",
       response.status || 401,
       "AUTH_REDIRECT",
     );

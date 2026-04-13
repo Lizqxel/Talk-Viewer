@@ -46,9 +46,9 @@ export function ApiStatusCard({ error, isLoading, onRetry }: ApiStatusCardProps)
       ? "API接続先が未設定です"
       : "データの取得に失敗しました";
   const message = isDomainBlocked
-    ? "@bb-connection.com のアカウントでログインしたユーザーのみ閲覧可能です。"
+    ? "許可されたGoogleアカウントでログインしたユーザーのみ閲覧可能です。"
     : isUnauthenticated
-      ? "Googleアカウントが認証できていません。@bb-connection.com アカウントでログインして再読み込みしてください。"
+      ? "Googleアカウントが認証できていません。許可されたGoogleアカウントでログインして再読み込みしてください。"
     : isUnauthorized
       ? "アクセス権限がありません。管理者へ権限付与を依頼してください。"
     : isConfigError
