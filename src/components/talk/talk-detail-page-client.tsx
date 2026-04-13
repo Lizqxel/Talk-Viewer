@@ -1,17 +1,22 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { ChevronLeft, FilePenLine, FolderTree, UserRound } from "lucide-react";
 
 import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
-import { ClosingManagerPanel } from "@/components/talk/closing-manager-panel";
 import { TalkScriptFlow } from "@/components/talk/talk-script-flow";
 import { TalkTreeView } from "@/components/talk/talk-tree-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
+
+const ClosingManagerPanel = dynamic(
+  () => import("@/components/talk/closing-manager-panel").then((module) => module.ClosingManagerPanel),
+  { ssr: false },
+);
 
 interface TalkDetailPageClientProps {
   talkId: string;

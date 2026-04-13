@@ -1,13 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpenText, House, Layers3 } from "lucide-react";
 
 import { ClosingActionButton } from "@/components/talk/closing-action-button";
-import { ClosingManagerSidebarSummary } from "@/components/talk/closing-manager-sidebar-summary";
 import { cn } from "@/lib/utils";
+
+const ClosingManagerSidebarSummary = dynamic(
+  () =>
+    import("@/components/talk/closing-manager-sidebar-summary").then(
+      (module) => module.ClosingManagerSidebarSummary,
+    ),
+  { ssr: false },
+);
 
 const navigationItems = [
   {
