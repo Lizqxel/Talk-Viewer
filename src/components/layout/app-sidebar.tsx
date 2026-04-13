@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpenText, House, Layers3 } from "lucide-react";
 
+import { ClosingActionButton } from "@/components/talk/closing-action-button";
+import { ClosingManagerSidebarSummary } from "@/components/talk/closing-manager-sidebar-summary";
 import { cn } from "@/lib/utils";
 
 const navigationItems = [
@@ -24,6 +26,7 @@ const navigationItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const isTalkDetailPage = pathname.startsWith("/talks/");
 
   return (
     <aside className="hidden md:fixed md:inset-y-0 md:flex md:w-64 md:flex-col md:border-r md:bg-card">
@@ -64,6 +67,13 @@ export function AppSidebar() {
       </nav>
 
       <div className="border-t px-4 py-4">
+        {isTalkDetailPage ? (
+          <>
+            <ClosingManagerSidebarSummary />
+            <ClosingActionButton className="mb-3 h-12 w-full text-sm font-semibold" />
+          </>
+        ) : null}
+
         <div className="rounded-lg border bg-muted/40 p-3">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium">
             <Layers3 className="size-4 text-primary" aria-hidden="true" />
