@@ -4,6 +4,7 @@
  * Required Script Properties:
  * - SPREADSHEET_ID
  * - ALLOWED_DOMAIN  (example: bb-connection.com)
+ * - ALLOWED_EMAILS  (optional, comma-separated emails)
  * - TALKS_SHEET     (default: Talks)
  * - EDITORS_SHEET   (default: Editors)
  * - AUDIT_SHEET     (default: AuditLog)
@@ -16,45 +17,61 @@ function doGet(e) {
     const userEmail = getUserEmail_();
 
     if (!isDomainAllowed_(userEmail)) {
-      return sendResponse_({
-        ok: false,
-        error: {
-          code: "FORBIDDEN_DOMAIN",
-          message: "社内ドメインアカウントのみアクセス可能です",
+      return sendResponse_(
+        {
+          ok: false,
+          error: {
+            code: "FORBIDDEN_DOMAIN",
+            message: "許可されたアカウントのみアクセス可能です",
+          },
         },
-      }, 403, callback);
+        403,
+        callback,
+      );
     }
 
     const action = (e && e.parameter && e.parameter.action) || "bootstrap";
 
     if (action !== "bootstrap") {
-      return sendResponse_({
-        ok: false,
-        error: {
-          code: "INVALID_ACTION",
-          message: "指定された action はサポートされていません",
+      return sendResponse_(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ACTION",
+            message: "指定された action はサポートされていません",
+          },
         },
-      }, 400, callback);
+        400,
+        callback,
+      );
     }
 
     const payload = buildBootstrapPayload_(userEmail);
 
-    return sendResponse_({
-      ok: true,
-      user: {
-        email: userEmail,
-        canEdit: isEditor_(userEmail),
+    return sendResponse_(
+      {
+        ok: true,
+        user: {
+          email: userEmail,
+          canEdit: isEditor_(userEmail),
+        },
+        data: payload,
       },
-      data: payload,
-    }, 200, callback);
+      200,
+      callback,
+    );
   } catch (err) {
-    return sendResponse_({
-      ok: false,
-      error: {
-        code: "INTERNAL_ERROR",
-        message: String(err),
+    return sendResponse_(
+      {
+        ok: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: String(err),
+        },
       },
-    }, 500, callback);
+      500,
+      callback,
+    );
   }
 }
 
@@ -63,57 +80,72 @@ function doPost(e) {
     const userEmail = getUserEmail_();
 
     if (!isDomainAllowed_(userEmail)) {
-      return jsonResponse_({
-        ok: false,
-        error: {
-          code: "FORBIDDEN_DOMAIN",
-          message: "社内ドメインアカウントのみアクセス可能です",
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "FORBIDDEN_DOMAIN",
+            message: "許可されたアカウントのみアクセス可能です",
+          },
         },
-      }, 403);
+        403,
+      );
     }
 
     if (!isEditor_(userEmail)) {
-      return jsonResponse_({
-        ok: false,
-        error: {
-          code: "FORBIDDEN_EDITOR",
-          message: "編集権限がありません",
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "FORBIDDEN_EDITOR",
+            message: "編集権限がありません",
+          },
         },
-      }, 403);
+        403,
+      );
     }
 
     if (!e || !e.postData || !e.postData.contents) {
-      return jsonResponse_({
-        ok: false,
-        error: {
-          code: "INVALID_BODY",
-          message: "POSTボディが空です",
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_BODY",
+            message: "POSTボディが空です",
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
     const body = JSON.parse(e.postData.contents);
     const action = body.action || "";
 
     if (action !== "updateTalk") {
-      return jsonResponse_({
-        ok: false,
-        error: {
-          code: "INVALID_ACTION",
-          message: "updateTalk のみサポートしています",
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_ACTION",
+            message: "updateTalk のみサポートしています",
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
     const talk = body.talk;
     if (!talk || !talk.id) {
-      return jsonResponse_({
-        ok: false,
-        error: {
-          code: "INVALID_TALK",
-          message: "talk.id が必要です",
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_TALK",
+            message: "talk.id が必要です",
+          },
         },
-      }, 400);
+        400,
+      );
     }
 
     const result = upsertTalk_(talk, userEmail);
@@ -135,13 +167,16 @@ function doPost(e) {
     const email = safeEmail_();
     appendAudit_("updateTalk", "", email, "error", String(err));
 
-    return jsonResponse_({
-      ok: false,
-      error: {
-        code: "INTERNAL_ERROR",
-        message: String(err),
+    return jsonResponse_(
+      {
+        ok: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: String(err),
+        },
       },
-    }, 500);
+      500,
+    );
   }
 }
 
@@ -176,18 +211,16 @@ function buildBootstrapPayload_(userEmail) {
         rank: index + 1,
       };
     }),
-    recentUpdates: talks
-      .slice(0, 5)
-      .map(function (talk, index) {
-        return {
-          id: "recent-" + (index + 1),
-          talkId: talk.id,
-          title: talk.title,
-          detail: "スプレッドシート経由で更新",
-          date: talk.updatedAt || "",
-          type: "talk",
-        };
-      }),
+    recentUpdates: talks.slice(0, 5).map(function (talk, index) {
+      return {
+        id: "recent-" + (index + 1),
+        talkId: talk.id,
+        title: talk.title,
+        detail: "スプレッドシート経由で更新",
+        date: talk.updatedAt || "",
+        type: "talk",
+      };
+    }),
     talkCategories: buildCategories_(talks),
     talkTags: collectTags_(talks),
     productLabels: fallbackProductLabels,
@@ -321,7 +354,9 @@ function isEditor_(email) {
   const idx = indexMap_(header);
 
   for (var i = 1; i < values.length; i += 1) {
-    const rowEmail = String(values[i][idx.email] || "").toLowerCase().trim();
+    const rowEmail = String(values[i][idx.email] || "")
+      .toLowerCase()
+      .trim();
     const canEdit = String(values[i][idx.can_edit] || "").toUpperCase() === "TRUE";
     const isActive = String(values[i][idx.is_active] || "").toUpperCase() === "TRUE";
 
@@ -340,12 +375,35 @@ function appendAudit_(action, talkId, actorEmail, result, detail) {
 }
 
 function isDomainAllowed_(email) {
+  const normalizedEmail = String(email || "")
+    .toLowerCase()
+    .trim();
+  if (!normalizedEmail) {
+    return false;
+  }
+
+  const allowedEmailsText = prop_("ALLOWED_EMAILS", "");
+  const allowedEmails = allowedEmailsText
+    .split(",")
+    .map(function (item) {
+      return String(item || "")
+        .toLowerCase()
+        .trim();
+    })
+    .filter(function (item) {
+      return item !== "";
+    });
+
+  if (allowedEmails.indexOf(normalizedEmail) !== -1) {
+    return true;
+  }
+
   const domain = prop_("ALLOWED_DOMAIN", "").toLowerCase().trim();
   if (!domain) {
     return false;
   }
 
-  const match = String(email || "").toLowerCase().trim().match(/@(.+)$/);
+  const match = normalizedEmail.match(/@(.+)$/);
   if (!match) {
     return false;
   }
@@ -412,18 +470,13 @@ function sendResponse_(obj, statusCode, callbackName) {
 }
 
 function jsonpResponse_(callbackName, obj) {
-  const output = ContentService.createTextOutput(
-    callbackName + "(" + JSON.stringify(obj) + ");",
-  );
+  const output = ContentService.createTextOutput(callbackName + "(" + JSON.stringify(obj) + ");");
   output.setMimeType(ContentService.MimeType.JAVASCRIPT);
   return output;
 }
 
 function getCallbackName_(e) {
-  const raw =
-    e && e.parameter && e.parameter.callback
-      ? String(e.parameter.callback).trim()
-      : "";
+  const raw = e && e.parameter && e.parameter.callback ? String(e.parameter.callback).trim() : "";
 
   if (!raw) {
     return "";
