@@ -552,13 +552,17 @@ function getReturnTo_(e) {
     const allowedHosts = prop_("ALLOWED_RETURN_HOSTS", "lizqxel.github.io,localhost:3000")
       .split(",")
       .map(function (value) {
-        return String(value || "").toLowerCase().trim();
+        return String(value || "")
+          .toLowerCase()
+          .trim();
       })
       .filter(function (value) {
         return value !== "";
       });
 
-    const host = String(url.host || "").toLowerCase().trim();
+    const host = String(url.host || "")
+      .toLowerCase()
+      .trim();
     if (allowedHosts.indexOf(host) === -1) {
       return "";
     }
@@ -572,17 +576,19 @@ function getReturnTo_(e) {
 function htmlRedirectResponse_(url) {
   const escapedUrl = JSON.stringify(String(url || ""));
   const html =
-    "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
-    "<title>認証完了</title></head><body style=\"font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:24px;\">" +
-    "<p style=\"margin:0 0 12px;\">認証を確認しました。元の画面に戻ります...</p>" +
+    '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>認証完了</title></head><body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:24px;">' +
+    '<p style="margin:0 0 12px;">認証を確認しました。元の画面に戻ります...</p>' +
     "<script>window.location.replace(" +
     escapedUrl +
     ");</script>" +
-    "<p style=\"margin:0;\">自動で戻らない場合は <a id=\"return-link\" href=\"#\">こちら</a> をクリックしてください。</p>" +
+    '<p style="margin:0;">自動で戻らない場合は <a id="return-link" href="#">こちら</a> をクリックしてください。</p>' +
     "<script>document.getElementById('return-link').setAttribute('href', " +
     escapedUrl +
     ");</script>" +
     "</body></html>";
 
-  return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(
+    HtmlService.XFrameOptionsMode.ALLOWALL,
+  );
 }
