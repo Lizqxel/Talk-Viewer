@@ -6,12 +6,12 @@ import { ChevronLeft, FilePenLine, FolderTree, UserRound } from "lucide-react";
 
 import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
+import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { TalkScriptFlow } from "@/components/talk/talk-script-flow";
 import { TalkTreeView } from "@/components/talk/talk-tree-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
 
 const ClosingManagerPanel = dynamic(
   () => import("@/components/talk/closing-manager-panel").then((module) => module.ClosingManagerPanel),
@@ -23,7 +23,7 @@ interface TalkDetailPageClientProps {
 }
 
 export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
-  const { data, error, isLoading, isFallback, reload } = useTalkBootstrap();
+  const { data, error, isLoading, isFallback, reload } = useTalkBootstrapContext();
 
   if (isLoading || (!data && error) || !data) {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;

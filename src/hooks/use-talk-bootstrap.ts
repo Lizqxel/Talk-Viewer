@@ -135,7 +135,7 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
     return new TalkPortalApiError(String(caught), 500, "UNKNOWN_ERROR");
   }, []);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async (signal?: AbortSignal): Promise<TalkPortalApiError | null> => {
     try {
       const payload = await withHardTimeout(
         fetchTalkBootstrap(signal),
@@ -147,11 +147,11 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
       setData(payload);
       setError(null);
       setIsFallback(false);
-      return;
+      return null;
     } catch (caught) {
       const nextError = normalizeError(caught);
       if (!nextError) {
-        return;
+        return null;
       }
 
       let finalError = nextError;
@@ -175,7 +175,7 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
           setData(payload);
           setError(null);
           setIsFallback(false);
-          return;
+          return null;
         } catch (jsonpCaught) {
           const jsonpError = normalizeError(jsonpCaught);
           if (jsonpError) {
@@ -189,7 +189,7 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
       }
 
       if (isAutoAuthorizeCandidate(finalError) && tryAutoAuthorizeRedirect()) {
-        return;
+        return null;
       }
 
       setError(finalError);
@@ -198,11 +198,12 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
         const mockPayload = await getMockBootstrapPayload();
         setData(mockPayload);
         setIsFallback(true);
-        return;
+        return finalError;
       }
 
       setData(null);
       setIsFallback(false);
+      return finalError;
     }
   }, [fallbackToMock, normalizeError]);
 
@@ -210,8 +211,9 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
     const controller = new AbortController();
 
     setIsLoading(true);
-    await load(controller.signal);
+    const loadError = await load(controller.signal);
     setIsLoading(false);
+    return loadError;
   }, [load]);
 
   useEffect(() => {
