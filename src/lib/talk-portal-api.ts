@@ -66,6 +66,7 @@ export class TalkPortalApiError extends Error {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_TALK_API_URL?.trim() ?? "";
+const BOOTSTRAP_FETCH_TIMEOUT_MS = 12000;
 
 export const DEFAULT_PRODUCT_LABELS: Record<TalkProduct, string> = {
   hikari: "光回線",
@@ -329,6 +330,59 @@ export function hasTalkPortalApiConfig() {
   return Boolean(API_URL);
 }
 
+export function getTalkPortalAuthorizeUrl(returnTo?: string) {
+  if (!API_URL) {
+    return "";
+  }
+
+  const endpoint = new URL(API_URL);
+  endpoint.searchParams.set("action", "authorize");
+  if (returnTo) {
+    endpoint.searchParams.set("return_to", returnTo);
+  }
+  endpoint.searchParams.set("_ts", String(Date.now()));
+  return endpoint.toString();
+}
+
+function createTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const abortByParent = () => {
+    controller.abort();
+  };
+
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      controller.abort();
+    } else {
+      parentSignal.addEventListener("abort", abortByParent, { once: true });
+    }
+  }
+
+  const cleanup = () => {
+    clearTimeout(timeoutId);
+    if (parentSignal) {
+      parentSignal.removeEventListener("abort", abortByParent);
+    }
+  };
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    cleanup,
+  };
+}
+
+function isAbortError(value: unknown) {
+  return value instanceof Error && value.name === "AbortError";
+}
+
 export async function fetchTalkBootstrap(signal?: AbortSignal): Promise<TalkBootstrapPayload> {
   if (!API_URL) {
     throw new TalkPortalApiError(
@@ -341,15 +395,32 @@ export async function fetchTalkBootstrap(signal?: AbortSignal): Promise<TalkBoot
   const endpoint = new URL(API_URL);
   endpoint.searchParams.set("action", "bootstrap");
 
-  const response = await fetch(endpoint.toString(), {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-    },
-    signal,
-  });
+  const timeoutSignal = createTimeoutSignal(signal, BOOTSTRAP_FETCH_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint.toString(), {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+      signal: timeoutSignal.signal,
+    });
+  } catch (caught) {
+    if (isAbortError(caught) && timeoutSignal.didTimeout()) {
+      throw new TalkPortalApiError(
+        "Apps Script API の応答がタイムアウトしました。許可されたGoogleアカウントで認証後に再試行してください。",
+        408,
+        "BOOTSTRAP_TIMEOUT",
+      );
+    }
+
+    throw caught;
+  } finally {
+    timeoutSignal.cleanup();
+  }
 
   const json = await parseJsonResponse(response);
   assertEnvelopeOk(json, "データ取得に失敗しました");
