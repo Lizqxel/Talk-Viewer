@@ -5,9 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronLeft, DatabaseZap, Loader2, ShieldAlert, TriangleAlert } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
+import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
 import { migrateMockTalksToSheet, type TalkMigrationReport } from "@/lib/talk-migration";
 
 function getFailureMessage(value: unknown) {
@@ -19,7 +19,7 @@ function getFailureMessage(value: unknown) {
 }
 
 export function TalkMigrationPageClient() {
-  const { data, error, isLoading, reload } = useTalkBootstrap({ fallbackToMock: false });
+  const { data, error, isLoading, reload } = useTalkBootstrapContext();
 
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationMessage, setMigrationMessage] = useState<string | null>(null);

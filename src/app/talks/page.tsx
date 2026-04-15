@@ -3,10 +3,10 @@
 import { TalksExplorer } from "@/components/talk/talks-explorer";
 import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
-import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
+import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 
 export default function TalksPage() {
-  const { data, error, isLoading, isFallback, reload } = useTalkBootstrap();
+  const { data, error, isLoading, isFallback, reload } = useTalkBootstrapContext();
 
   if (isLoading || (!data && error) || !data) {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;

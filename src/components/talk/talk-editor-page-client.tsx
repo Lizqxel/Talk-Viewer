@@ -5,10 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, Save, ShieldAlert, TriangleAlert } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
+import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
 import { updateTalkByApi } from "@/lib/talk-portal-api";
 import { type Talk } from "@/types/talk";
 
@@ -43,7 +43,7 @@ function parseTalkJson(raw: string, expectedTalkId: string): Talk {
 }
 
 export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
-  const { data, error, isLoading, reload } = useTalkBootstrap({ fallbackToMock: false });
+  const { data, error, isLoading, reload } = useTalkBootstrapContext();
 
   const [jsonText, setJsonText] = useState("");
   const [isDirty, setIsDirty] = useState(false);

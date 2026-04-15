@@ -11,13 +11,13 @@ import { BrandHero } from "@/components/home/brand-hero";
 import { Reveal, StaggerGrid, StaggerItem } from "@/components/motion/motion-primitives";
 import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
+import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
 
 export default function HomePage() {
-  const { data, error, isLoading, isFallback, reload } = useTalkBootstrap();
+  const { data, error, isLoading, isFallback, reload } = useTalkBootstrapContext();
 
   const featuredTalkCards = useMemo(() => {
     if (!data) {
