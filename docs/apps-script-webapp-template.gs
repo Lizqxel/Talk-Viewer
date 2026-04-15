@@ -8,10 +8,25 @@
  * - TALKS_SHEET     (default: Talks)
  * - EDITORS_SHEET   (default: Editors)
  * - AUDIT_SHEET     (default: AuditLog)
+ * - ALLOWED_RETURN_HOSTS (optional, comma-separated. ex: lizqxel.github.io,localhost:3000)
  */
 
 function doGet(e) {
   const callback = getCallbackName_(e);
+
+  if (isLegacyEchoRequest_(e)) {
+    return sendResponse_(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_ENDPOINT",
+          message: "このURLでは利用できません。Webアプリの /exec URL を利用してください。",
+        },
+      },
+      400,
+      callback,
+    );
+  }
 
   try {
     const userEmail = getUserEmail_();
@@ -30,7 +45,28 @@ function doGet(e) {
       );
     }
 
-    const action = (e && e.parameter && e.parameter.action) || "bootstrap";
+    const action = (e && e.parameter && e.parameter.action) || "";
+
+    if (action === "authorize") {
+      const returnTo = getReturnTo_(e);
+
+      if (!callback && returnTo) {
+        return htmlRedirectResponse_(returnTo);
+      }
+
+      return sendResponse_(
+        {
+          ok: true,
+          message: "認証を確認しました。元のサイトに戻って再読み込みしてください。",
+          user: {
+            email: userEmail,
+            canEdit: isEditor_(userEmail),
+          },
+        },
+        200,
+        callback,
+      );
+    }
 
     if (action !== "bootstrap") {
       return sendResponse_(
@@ -38,7 +74,7 @@ function doGet(e) {
           ok: false,
           error: {
             code: "INVALID_ACTION",
-            message: "指定された action はサポートされていません",
+            message: "指定された action はサポートされていません（bootstrap / authorize）",
           },
         },
         400,
@@ -484,4 +520,69 @@ function getCallbackName_(e) {
 
   const isValid = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(raw);
   return isValid ? raw : "";
+}
+
+function isLegacyEchoRequest_(e) {
+  if (!e || !e.parameter) {
+    return false;
+  }
+
+  const hasUserContentKey = Boolean(e.parameter.user_content_key);
+  const hasLibraryKey = Boolean(e.parameter.lib);
+  return hasUserContentKey || hasLibraryKey;
+}
+
+function getReturnTo_(e) {
+  if (!e || !e.parameter || !e.parameter.return_to) {
+    return "";
+  }
+
+  const raw = String(e.parameter.return_to || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    const url = new URL(raw);
+    const protocol = String(url.protocol || "").toLowerCase();
+    if (protocol !== "https:" && protocol !== "http:") {
+      return "";
+    }
+
+    const allowedHosts = prop_("ALLOWED_RETURN_HOSTS", "lizqxel.github.io,localhost:3000")
+      .split(",")
+      .map(function (value) {
+        return String(value || "").toLowerCase().trim();
+      })
+      .filter(function (value) {
+        return value !== "";
+      });
+
+    const host = String(url.host || "").toLowerCase().trim();
+    if (allowedHosts.indexOf(host) === -1) {
+      return "";
+    }
+
+    return url.toString();
+  } catch (err) {
+    return "";
+  }
+}
+
+function htmlRedirectResponse_(url) {
+  const escapedUrl = JSON.stringify(String(url || ""));
+  const html =
+    "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
+    "<title>認証完了</title></head><body style=\"font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:24px;\">" +
+    "<p style=\"margin:0 0 12px;\">認証を確認しました。元の画面に戻ります...</p>" +
+    "<script>window.location.replace(" +
+    escapedUrl +
+    ");</script>" +
+    "<p style=\"margin:0;\">自動で戻らない場合は <a id=\"return-link\" href=\"#\">こちら</a> をクリックしてください。</p>" +
+    "<script>document.getElementById('return-link').setAttribute('href', " +
+    escapedUrl +
+    ");</script>" +
+    "</body></html>";
+
+  return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }

@@ -97,6 +97,16 @@ src/
 - Web アプリ設定は「実行ユーザー: アクセスしているユーザー」を推奨
 - 「アクセスできるユーザー」は運用時に `bb-connection.com` ドメイン内に限定
 - フロントは起動時に `action=bootstrap` でトークデータを取得
+- 初回認証は `action=authorize` で行い、成功後は `return_to` で元ページへ自動復帰
+- API URL は必ず Web アプリの `/exec` URL を使用（`/echo?user_content_key=...` は使用しない）
+- `ALLOWED_RETURN_HOSTS` に許可する戻り先ホストを設定（例: `lizqxel.github.io,localhost:3000`）
+
+### 認証トラブル時の確認
+
+1. `NEXT_PUBLIC_TALK_API_URL` が `/exec` 形式になっていることを確認
+2. 非許可アカウントでアクセスした場合は画面上に「許可されていないアカウントです」と表示されることを確認
+3. 初回アクセスで自動認証リダイレクトされるため、通常は手動で長い認証URLを開く必要なし
+4. 自動で戻らない場合のみ「認証ページを開く」から再認証
 
 ### 編集機能
 
