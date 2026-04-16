@@ -244,7 +244,9 @@ function doPost(e) {
         );
       }
 
-      var targetEmail = normalizeEmail_(body.email || body.editorEmail || (body.editor && body.editor.email));
+      var targetEmail = normalizeEmail_(
+        body.email || body.editorEmail || (body.editor && body.editor.email),
+      );
       if (!targetEmail) {
         return jsonResponse_(
           {
@@ -280,7 +282,8 @@ function doPost(e) {
           ok: false,
           error: {
             code: "INVALID_ACTION",
-            message: "updateTalk / upsertEditorPermission / deleteEditorPermission をサポートしています",
+            message:
+              "updateTalk / upsertEditorPermission / deleteEditorPermission をサポートしています",
           },
         },
         400,
