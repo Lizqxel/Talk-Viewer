@@ -5,7 +5,7 @@
 
 ## 概要
 
-- ルーティング: `/` (Home), `/talks` (トーク一覧), `/talks/[id]` (トーク詳細)
+- ルーティング: `/` (Home), `/talks` (トーク一覧), `/talks/[id]` (トーク詳細), `/admin/script-permissions` (権限管理)
 - UI方針: 固定サイドバー + 上部検索バー + 視認性重視のカード設計
 - 技術: Next.js(App Router), TypeScript, Tailwind CSS, shadcn/ui, Lucide
 - データ取得: 初期は local mock data、`repository` 層経由で参照
@@ -112,6 +112,19 @@ src/
 
 - トーク詳細ページで `canEdit=true` のユーザーにのみ「編集」ボタンを表示
 - 編集ページは `/talks/[id]/edit` で、JSON編集後に保存すると `doPost(action=updateTalk)` で反映
+
+### 権限管理（admin専用タブ）
+
+- admin ユーザーにのみナビゲーションへ「権限管理」タブを表示
+- ページは `/admin/script-permissions` で、Editors シートの権限を付与・更新可能
+- 一覧取得は `doGet(action=listEditorPermissions)`、更新は `doPost(action=upsertEditorPermission)`
+- `Editors` シートは少なくとも以下の列を持つことを推奨
+
+```text
+email, can_edit, is_active, is_admin, updated_at, updated_by
+```
+
+- `is_admin=true` かつ `is_active=true` のユーザーのみ管理ページへアクセス可能
 
 ### 一括移行（モック -> Talksシート）
 

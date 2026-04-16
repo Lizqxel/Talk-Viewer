@@ -4,9 +4,10 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenText, House, Layers3 } from "lucide-react";
+import { BookOpenText, House, KeyRound, Layers3 } from "lucide-react";
 
 import { ClosingActionButton } from "@/components/talk/closing-action-button";
+import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { cn } from "@/lib/utils";
 
 const ClosingManagerSidebarSummary = dynamic(
@@ -17,7 +18,7 @@ const ClosingManagerSidebarSummary = dynamic(
   { ssr: false },
 );
 
-const navigationItems = [
+const baseNavigationItems = [
   {
     href: "/",
     label: "ホーム",
@@ -32,9 +33,20 @@ const navigationItems = [
   },
 ];
 
+const adminNavigationItem = {
+  href: "/admin/script-permissions",
+  label: "権限管理",
+  icon: KeyRound,
+  match: (pathname: string) => pathname.startsWith("/admin/script-permissions"),
+};
+
 export function AppSidebar() {
   const pathname = usePathname();
+  const { data } = useTalkBootstrapContext();
   const isTalkDetailPage = pathname.startsWith("/talks/");
+  const navigationItems = data?.user?.isAdmin
+    ? [...baseNavigationItems, adminNavigationItem]
+    : baseNavigationItems;
 
   return (
     <aside className="hidden md:fixed md:inset-y-0 md:flex md:w-64 md:flex-col md:border-r md:bg-card">
