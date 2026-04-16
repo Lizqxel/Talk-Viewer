@@ -10,15 +10,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-const mobileNavItems = [
+const baseMobileNavItems = [
   { href: "/", label: "ホーム", match: (pathname: string) => pathname === "/" },
   { href: "/talks", label: "トーク一覧", match: (pathname: string) => pathname.startsWith("/talks") },
 ];
 
+const adminMobileNavItem = {
+  href: "/admin/script-permissions",
+  label: "権限管理",
+  match: (pathname: string) => pathname.startsWith("/admin/script-permissions"),
+};
+
 export function AppHeader() {
   const pathname = usePathname();
-  const { isLoading, error, reload, lastLoadedAt } = useTalkBootstrapContext();
+  const { data, isLoading, error, reload, lastLoadedAt } = useTalkBootstrapContext();
   const [refreshFeedback, setRefreshFeedback] = useState<string | null>(null);
+  const mobileNavItems = data?.user?.isAdmin ? [...baseMobileNavItems, adminMobileNavItem] : baseMobileNavItems;
 
   const handleRefresh = async () => {
     setRefreshFeedback(null);

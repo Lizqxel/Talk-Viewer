@@ -14,6 +14,34 @@ import { MockTalkRepository } from "@/repositories/mock/mock-talk-repository";
 export interface TalkPortalUser {
   email?: string;
   canEdit?: boolean;
+  isAdmin?: boolean;
+}
+
+export interface ScriptEditorPermission {
+  email: string;
+  canEdit: boolean;
+  isActive: boolean;
+  isAdmin: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface UpsertScriptEditorPermissionInput {
+  email: string;
+  canEdit: boolean;
+  isActive: boolean;
+  isAdmin: boolean;
+}
+
+export interface ScriptEditorPermissionUpsertResult {
+  email: string;
+  canEdit: boolean;
+  isActive: boolean;
+  isAdmin: boolean;
+}
+
+export interface ScriptEditorPermissionDeleteResult {
+  email: string;
 }
 
 export interface TalkBootstrapPayload {
@@ -128,6 +156,41 @@ function pickRecord(source: LooseRecord, keys: string[]): LooseRecord | null {
   return asRecord(pickFirstValue(source, keys));
 }
 
+function toBoolean(value: unknown, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+
+  if (typeof value === "string") {
+    const normalized = stripInvisible(value).toLowerCase();
+    if (!normalized) {
+      return fallback;
+    }
+
+    if (normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "y" || normalized === "on") {
+      return true;
+    }
+
+    if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "n" || normalized === "off") {
+      return false;
+    }
+  }
+
+  return fallback;
+}
+
+function toOptionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  return toBoolean(value, false);
+}
+
 function normalizeProductLabels(raw: LooseRecord | null): Record<TalkProduct, string> {
   if (!raw) {
     return DEFAULT_PRODUCT_LABELS;
@@ -192,10 +255,12 @@ function resolveUserFromRecord(source: LooseRecord | null): TalkPortalUser | und
 
   const email = pickFirstValue(source, ["email", "メール"]);
   const canEdit = pickFirstValue(source, ["canEdit", "編集可", "can_edit"]);
+  const isAdmin = pickFirstValue(source, ["isAdmin", "管理者", "is_admin"]);
 
   return {
     email: email ? String(email) : undefined,
-    canEdit: typeof canEdit === "boolean" ? canEdit : String(canEdit).toLowerCase() === "true",
+    canEdit: toOptionalBoolean(canEdit),
+    isAdmin: toOptionalBoolean(isAdmin),
   };
 }
 
@@ -276,6 +341,146 @@ function normalizeUpdateResponse(raw: unknown, fallbackTalkId: string) {
     talkId: String(talkIdRaw),
     revision: typeof revisionRaw === "number" ? revisionRaw : undefined,
   };
+}
+
+function normalizeEditorPermission(raw: unknown): ScriptEditorPermission | null {
+  const record = asRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const emailRaw = pickFirstValue(record, ["email", "メール", "mail"]);
+  const email = emailRaw ? String(emailRaw).trim().toLowerCase() : "";
+
+  if (!email) {
+    return null;
+  }
+
+  const canEdit = pickFirstValue(record, ["canEdit", "can_edit", "編集可"]);
+  const isActive = pickFirstValue(record, ["isActive", "is_active", "有効"]);
+  const isAdmin = pickFirstValue(record, ["isAdmin", "is_admin", "管理者"]);
+  const updatedAt = pickFirstValue(record, ["updatedAt", "updated_at", "更新日時"]);
+  const updatedBy = pickFirstValue(record, ["updatedBy", "updated_by", "更新者"]);
+
+  return {
+    email,
+    canEdit: toBoolean(canEdit, false),
+    isActive: toBoolean(isActive, false),
+    isAdmin: toBoolean(isAdmin, false),
+    updatedAt: updatedAt ? String(updatedAt) : undefined,
+    updatedBy: updatedBy ? String(updatedBy) : undefined,
+  };
+}
+
+function normalizeEditorPermissionList(raw: unknown): ScriptEditorPermission[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((item) => normalizeEditorPermission(item))
+    .filter((item): item is ScriptEditorPermission => Boolean(item))
+    .sort((a, b) => a.email.localeCompare(b.email));
+}
+
+function resolveEditorPermissionList(raw: unknown): ScriptEditorPermission[] {
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return [];
+  }
+
+  const candidates: unknown[] = [];
+  if ("data" in envelope) {
+    candidates.push(envelope.data);
+  }
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return normalizeEditorPermissionList(candidate);
+    }
+
+    const record = asRecord(candidate);
+    if (!record) {
+      continue;
+    }
+
+    const nested = pickFirstValue(record, ["editorPermissions", "editors", "permissions", "items", "rows", "list"]);
+    if (Array.isArray(nested)) {
+      return normalizeEditorPermissionList(nested);
+    }
+  }
+
+  return [];
+}
+
+function resolveEditorPermission(raw: unknown): ScriptEditorPermission | null {
+  const direct = normalizeEditorPermission(raw);
+  if (direct) {
+    return direct;
+  }
+
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return null;
+  }
+
+  const candidates: unknown[] = [];
+  if ("data" in envelope) {
+    candidates.push(envelope.data);
+  }
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    const record = asRecord(candidate);
+    if (!record) {
+      continue;
+    }
+
+    const nested = pickFirstValue(record, ["editor", "permission", "item", "row"]);
+    const resolved = normalizeEditorPermission(nested);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
+}
+
+function resolveDeletedEditorEmail(raw: unknown): string | null {
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return null;
+  }
+
+  const candidates: unknown[] = [];
+  if ("data" in envelope) {
+    candidates.push(envelope.data);
+  }
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    const record = asRecord(candidate);
+    if (!record) {
+      continue;
+    }
+
+    const deleted = pickFirstValue(record, ["deleted", "removed", "editor", "item"]);
+    const deletedRecord = asRecord(deleted);
+    if (deletedRecord) {
+      const deletedEmail = pickFirstValue(deletedRecord, ["email", "mail", "メール"]);
+      if (deletedEmail) {
+        return String(deletedEmail).trim().toLowerCase();
+      }
+    }
+
+    const directEmail = pickFirstValue(record, ["email", "editorEmail", "targetEmail", "mail", "メール"]);
+    if (directEmail) {
+      return String(directEmail).trim().toLowerCase();
+    }
+  }
+
+  return null;
 }
 
 function assertEnvelopeOk(raw: unknown, fallbackMessage: string) {
@@ -542,6 +747,99 @@ export async function fetchTalkBootstrapViaJsonp(
   });
 }
 
+async function fetchScriptEditorPermissionsViaJsonp(
+  timeoutMs = 12000,
+): Promise<ScriptEditorPermission[]> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new TalkPortalApiError("JSONPはブラウザ環境でのみ利用できます", 500, "JSONP_UNAVAILABLE");
+  }
+
+  const callbackName = `talkPortalEditorJsonp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const endpoint = new URL(API_URL);
+  endpoint.searchParams.set("action", "listEditorPermissions");
+  endpoint.searchParams.set("callback", callbackName);
+  endpoint.searchParams.set("_ts", String(Date.now()));
+
+  const globalScope = window as unknown as Record<string, unknown>;
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    let settled = false;
+
+    const cleanup = () => {
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      delete globalScope[callbackName];
+      window.clearTimeout(timerId);
+    };
+
+    const finishReject = (error: TalkPortalApiError) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const finishResolve = (raw: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+
+      try {
+        assertEnvelopeOk(raw, "編集権限一覧の取得に失敗しました");
+        resolve(resolveEditorPermissionList(raw));
+      } catch (caught) {
+        finishReject(
+          caught instanceof TalkPortalApiError
+            ? caught
+            : new TalkPortalApiError(String(caught), 500, "JSONP_PARSE_ERROR"),
+        );
+      }
+    };
+
+    const timerId = window.setTimeout(() => {
+      finishReject(
+        new TalkPortalApiError(
+          "JSONPタイムアウト: Apps Scriptからの応答を受信できませんでした",
+          0,
+          "JSONP_TIMEOUT",
+        ),
+      );
+    }, timeoutMs);
+
+    globalScope[callbackName] = (raw: unknown) => {
+      finishResolve(raw);
+    };
+
+    script.async = true;
+    script.src = endpoint.toString();
+    script.onerror = () => {
+      finishReject(
+        new TalkPortalApiError(
+          "JSONP読み込みに失敗しました（認証リダイレクトの可能性）",
+          0,
+          "JSONP_LOAD_ERROR",
+        ),
+      );
+    };
+
+    document.head.appendChild(script);
+  });
+}
+
 export async function updateTalkByApi(talk: Talk): Promise<TalkUpdateResult> {
   if (!API_URL) {
     throw new TalkPortalApiError(
@@ -637,6 +935,263 @@ export async function updateTalkByApi(talk: Talk): Promise<TalkUpdateResult> {
   }
 }
 
+export async function fetchScriptEditorPermissions(): Promise<ScriptEditorPermission[]> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const endpoint = new URL(API_URL);
+  endpoint.searchParams.set("action", "listEditorPermissions");
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "編集権限一覧の取得に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "編集権限一覧の取得に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    return resolveEditorPermissionList(json);
+  } catch (caught) {
+    const canRetryWithJsonp =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR" ||
+          caught.code === "NETWORK_ERROR"));
+
+    if (!canRetryWithJsonp) {
+      throw caught;
+    }
+
+    return fetchScriptEditorPermissionsViaJsonp();
+  }
+}
+
+export async function upsertScriptEditorPermission(
+  input: UpsertScriptEditorPermissionInput,
+): Promise<ScriptEditorPermissionUpsertResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const email = input.email.trim().toLowerCase();
+  if (!email) {
+    throw new TalkPortalApiError("メールアドレスを入力してください", 400, "INVALID_EDITOR_EMAIL");
+  }
+
+  const endpoint = new URL(API_URL);
+
+  const body = JSON.stringify({
+    action: "upsertEditorPermission",
+    editor: {
+      email,
+      canEdit: input.canEdit,
+      isActive: input.isActive,
+      isAdmin: input.isAdmin,
+    },
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "編集権限の更新に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "編集権限の更新に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    const permission = resolveEditorPermission(json);
+
+    return {
+      email: permission?.email ?? email,
+      canEdit: permission?.canEdit ?? input.canEdit,
+      isActive: permission?.isActive ?? input.isActive,
+      isAdmin: permission?.isAdmin ?? input.isAdmin,
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "編集権限更新リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const verification = await fetchScriptEditorPermissionsViaJsonp();
+    const savedPermission = verification.find((item) => item.email === email);
+
+    if (!savedPermission) {
+      throw new TalkPortalApiError(
+        "更新後の再取得で編集権限が確認できませんでした",
+        0,
+        "UPDATE_VERIFY_FAILED",
+      );
+    }
+
+    return {
+      email: savedPermission.email,
+      canEdit: savedPermission.canEdit,
+      isActive: savedPermission.isActive,
+      isAdmin: savedPermission.isAdmin,
+    };
+  }
+}
+
+export async function deleteScriptEditorPermission(
+  emailInput: string,
+): Promise<ScriptEditorPermissionDeleteResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const email = emailInput.trim().toLowerCase();
+  if (!email) {
+    throw new TalkPortalApiError("削除対象のメールアドレスを入力してください", 400, "INVALID_EDITOR_EMAIL");
+  }
+
+  const endpoint = new URL(API_URL);
+  const body = JSON.stringify({
+    action: "deleteEditorPermission",
+    email,
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "編集権限の削除に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "編集権限の削除に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    return {
+      email: resolveDeletedEditorEmail(json) ?? email,
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "編集権限削除リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const verification = await fetchScriptEditorPermissionsViaJsonp();
+    const stillExists = verification.some((item) => item.email === email);
+
+    if (stillExists) {
+      throw new TalkPortalApiError(
+        "削除後の再取得で編集権限が残っています",
+        0,
+        "DELETE_VERIFY_FAILED",
+      );
+    }
+
+    return { email };
+  }
+}
+
 export async function getMockBootstrapPayload(): Promise<TalkBootstrapPayload> {
   const repository = new MockTalkRepository();
 
@@ -677,6 +1232,7 @@ export async function getMockBootstrapPayload(): Promise<TalkBootstrapPayload> {
     talks: mockTalks,
     user: {
       canEdit: false,
+      isAdmin: false,
     },
   };
 }
