@@ -2,50 +2,178 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, Save, ShieldAlert, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageSquarePlus, Plus, Save, ShieldAlert, TriangleAlert } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { deriveTalkSections } from "@/lib/talk-sections";
 import { updateTalkByApi } from "@/lib/talk-portal-api";
-import { type Talk } from "@/types/talk";
+import { type Talk, type TalkNode } from "@/types/talk";
 
 interface TalkEditorPageClientProps {
   talkId: string;
 }
 
-function parseTalkJson(raw: string, expectedTalkId: string): Talk {
-  let parsed: unknown;
+type BranchGuideDraft = {
+  id: string;
+  afterLine: number;
+  trigger: string;
+  action: string;
+};
 
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("JSON形式が不正です");
+function cloneTalk(talk: Talk): Talk {
+  return JSON.parse(JSON.stringify(talk)) as Talk;
+}
+
+function clampAfterLine(value: number, maxLine: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(Math.max(0, Math.trunc(value)), maxLine);
+}
+
+function getScriptLines(node: TalkNode) {
+  return node.readAloudScript && node.readAloudScript.length > 0 ? node.readAloudScript : node.lines;
+}
+
+function parseArrowText(text: string): { trigger: string; action: string } | null {
+  const arrow = text.includes("→") ? "→" : text.includes("->") ? "->" : null;
+  if (!arrow) {
+    return null;
   }
 
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("トークデータはオブジェクト形式で入力してください");
+  const [triggerRaw, actionRaw] = text.split(arrow, 2);
+  const trigger = String(triggerRaw ?? "").trim();
+  const action = String(actionRaw ?? "").trim();
+
+  if (!trigger || !action) {
+    return null;
   }
 
-  const talk = parsed as Talk;
+  return { trigger, action };
+}
 
-  if (talk.id !== expectedTalkId) {
-    throw new Error(`talk.id は ${expectedTalkId} のままにしてください`);
+function extractBranchGuides(node: TalkNode): BranchGuideDraft[] {
+  return (node.inlineNotes ?? [])
+    .map((note, index) => {
+      if (note.tone !== "branch") {
+        return null;
+      }
+
+      const parsed = parseArrowText(note.text);
+      if (!parsed) {
+        return null;
+      }
+
+      return {
+        id: `${node.id}-${index}`,
+        afterLine: note.afterLine,
+        trigger: parsed.trigger,
+        action: parsed.action,
+      };
+    })
+    .filter((guide): guide is BranchGuideDraft => Boolean(guide));
+}
+
+function normalizeNodeScriptLines(node: TalkNode, nextLines: string[]): TalkNode {
+  const maxAfterLine = nextLines.length;
+
+  return {
+    ...node,
+    lines: [...nextLines],
+    readAloudScript: [...nextLines],
+    inlineNotes: (node.inlineNotes ?? []).map((note) => ({
+      ...note,
+      afterLine: clampAfterLine(note.afterLine, maxAfterLine),
+    })),
+    pointBlocks: (node.pointBlocks ?? []).map((point) => ({
+      ...point,
+      afterLine: clampAfterLine(point.afterLine, maxAfterLine),
+    })),
+  };
+}
+
+function buildInlineNotes(node: TalkNode, guides: BranchGuideDraft[], maxAfterLine: number) {
+  const preservedNotes = (node.inlineNotes ?? []).filter((note) => {
+    if (note.tone !== "branch") {
+      return true;
+    }
+    return !parseArrowText(note.text);
+  });
+
+  const branchNotes = guides.map((guide) => ({
+    afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
+    text: `${guide.trigger}→${guide.action}`,
+    tone: "branch" as const,
+  }));
+
+  return [...preservedNotes, ...branchNotes];
+}
+
+function getAfterLineOptions(lines: string[]) {
+  const options = [{ value: 0, label: "本文の前" }];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const preview = String(lines[i] ?? "").slice(0, 18);
+    options.push({
+      value: i + 1,
+      label: `${i + 1}行目の後${preview ? `: ${preview}` : ""}`,
+    });
   }
 
-  if (!Array.isArray(talk.nodes) || !Array.isArray(talk.rootNodeIds) || !Array.isArray(talk.tags)) {
-    throw new Error("nodes / rootNodeIds / tags は配列である必要があります");
+  return options;
+}
+
+function upsertSectionTitleOverride(talk: Talk, sectionId: string, title: string): Talk {
+  const current = { ...(talk.sectionTitleOverrides ?? {}) };
+
+  if (title.trim()) {
+    current[sectionId] = title;
+  } else {
+    delete current[sectionId];
   }
 
-  return talk;
+  return {
+    ...talk,
+    sectionTitleOverrides: Object.keys(current).length > 0 ? current : undefined,
+  };
+}
+
+function updateNodeById(talk: Talk, nodeId: string, updater: (node: TalkNode) => TalkNode): Talk {
+  return {
+    ...talk,
+    nodes: talk.nodes.map((node) => (node.id === nodeId ? updater(node) : node)),
+  };
+}
+
+function normalizeTalkForSave(talk: Talk): Talk {
+  return {
+    ...talk,
+    nodes: talk.nodes.map((node) => normalizeNodeScriptLines(node, getScriptLines(node))),
+  };
+}
+
+function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
+  const next = [...items];
+  const [target] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, target);
+  return next;
+}
+
+function renderSectionId(sectionId: string) {
+  return sectionId.replace(/-/g, " ");
 }
 
 export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   const { data, error, isLoading, reload } = useTalkBootstrapContext();
 
-  const [jsonText, setJsonText] = useState("");
+  const [draftTalk, setDraftTalk] = useState<Talk | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState("");
+  const [selectedNodeId, setSelectedNodeId] = useState("");
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -58,8 +186,70 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
       return;
     }
 
-    setJsonText(JSON.stringify(talk, null, 2));
+    setDraftTalk(cloneTalk(talk));
   }, [talk, isDirty]);
+
+  const sections = useMemo(() => {
+    if (!draftTalk) {
+      return [];
+    }
+    return deriveTalkSections(draftTalk);
+  }, [draftTalk]);
+
+  useEffect(() => {
+    if (sections.length === 0) {
+      return;
+    }
+
+    const currentSection = sections.find((section) => section.id === selectedSectionId);
+    if (!currentSection) {
+      const firstSection = sections[0];
+      setSelectedSectionId(firstSection.id);
+      setSelectedNodeId(firstSection.nodes[0]?.id ?? "");
+      return;
+    }
+
+    const nodeExists = currentSection.nodes.some((node) => node.id === selectedNodeId);
+    if (!nodeExists) {
+      setSelectedNodeId(currentSection.nodes[0]?.id ?? "");
+    }
+  }, [sections, selectedSectionId, selectedNodeId]);
+
+  const selectedSection = sections.find((section) => section.id === selectedSectionId) ?? sections[0] ?? null;
+  const selectedNode = selectedSection?.nodes.find((node) => node.id === selectedNodeId) ?? selectedSection?.nodes[0] ?? null;
+  const selectedScriptLines = selectedNode ? getScriptLines(selectedNode) : [];
+  const afterLineOptions = getAfterLineOptions(selectedScriptLines);
+
+  const setDirtyState = () => {
+    setIsDirty(true);
+    setSaveMessage(null);
+    setSaveError(null);
+  };
+
+  const mutateTalk = (updater: (prev: Talk) => Talk) => {
+    setDraftTalk((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return updater(prev);
+    });
+    setDirtyState();
+  };
+
+  const mutateNode = (nodeId: string, updater: (node: TalkNode) => TalkNode) => {
+    mutateTalk((prevTalk) => updateNodeById(prevTalk, nodeId, updater));
+  };
+
+  const updateGuides = (node: TalkNode, updater: (guides: BranchGuideDraft[]) => BranchGuideDraft[]) => {
+    const currentGuides = extractBranchGuides(node);
+    const nextGuides = updater(currentGuides);
+    const maxAfterLine = getScriptLines(node).length;
+
+    mutateNode(node.id, (currentNode) => ({
+      ...currentNode,
+      inlineNotes: buildInlineNotes(currentNode, nextGuides, maxAfterLine),
+    }));
+  };
 
   if (isLoading || (!data && error) || !data) {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
@@ -84,7 +274,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     );
   }
 
-  if (!talk) {
+  if (!talk || !draftTalk) {
     return (
       <Card className="border-border/80">
         <CardHeader>
@@ -106,13 +296,14 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     setSaveMessage(null);
 
     try {
-      const parsedTalk = parseTalkJson(jsonText, talkId);
-      const result = await updateTalkByApi(parsedTalk);
+      const normalized = normalizeTalkForSave(draftTalk);
+      const result = await updateTalkByApi(normalized);
       setSaveMessage(
         result.revision
           ? `保存しました（revision: ${result.revision}, transport: ${result.transport}）`
           : `保存しました（transport: ${result.transport}）`,
       );
+      setDraftTalk(normalized);
       setIsDirty(false);
       await reload();
     } catch (caught) {
@@ -121,6 +312,9 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
       setIsSaving(false);
     }
   };
+
+  const currentGuides = selectedNode ? extractBranchGuides(selectedNode) : [];
+  const currentPointBlocks = selectedNode?.pointBlocks ?? [];
 
   return (
     <div className="space-y-6">
@@ -139,62 +333,501 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
               <FilePenLine className="size-6 text-primary" aria-hidden="true" />
               トーク編集
             </h1>
-            <p className="text-sm text-muted-foreground">{talk.title}</p>
+            <p className="text-sm text-muted-foreground">{draftTalk.title}</p>
           </div>
           <Badge variant="secondary">編集者: {data.user.email ?? "unknown"}</Badge>
         </div>
       </div>
 
-      <Card className="border-border/80 bg-card">
-        <CardHeader>
-          <CardTitle className="text-base">トークJSON編集</CardTitle>
-          <CardDescription>talk.id は変更せずに編集し、保存すると Apps Script doPost で反映されます。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <textarea
-            value={jsonText}
-            onChange={(event) => {
-              setJsonText(event.target.value);
-              setIsDirty(true);
-            }}
-            className="min-h-[520px] w-full rounded-lg border border-border/80 bg-background px-3 py-2 font-mono text-xs leading-5 text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-            spellCheck={false}
-          />
+      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <Card className="border-border/80">
+          <CardHeader>
+            <CardTitle className="text-base">セクション</CardTitle>
+            <CardDescription>セクションタイトルを編集し、対象ノードを選択します。</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {sections.map((section) => {
+              const isSelected = selectedSection?.id === section.id;
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={() => void handleSave()} disabled={isSaving || !isDirty}>
-              {isSaving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
-              保存
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isSaving}
-              onClick={() => {
-                setJsonText(JSON.stringify(talk, null, 2));
-                setIsDirty(false);
-                setSaveError(null);
-                setSaveMessage(null);
-              }}
-            >
-              入力をリセット
-            </Button>
-          </div>
+              return (
+                <div key={section.id} className={`rounded-lg border p-3 ${isSelected ? "border-primary/50 bg-primary/5" : "border-border/70"}`}>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{renderSectionId(section.id)}</p>
+                    <Input
+                      value={section.title}
+                      onChange={(event) => {
+                        const nextTitle = event.target.value;
+                        mutateTalk((prevTalk) => upsertSectionTitleOverride(prevTalk, section.id, nextTitle));
+                      }}
+                    />
+                  </div>
 
-          {saveMessage ? (
-            <p className="flex items-center gap-1.5 text-sm text-emerald-700">
-              <CheckCircle2 className="size-4" aria-hidden="true" />
-              {saveMessage}
-            </p>
-          ) : null}
-          {saveError ? (
-            <p className="flex items-center gap-1.5 text-sm text-destructive">
-              <TriangleAlert className="size-4" aria-hidden="true" />
-              {saveError}
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
+                  <div className="mt-3 space-y-1.5">
+                    {section.nodes.map((node) => {
+                      const isNodeSelected = selectedNode?.id === node.id;
+
+                      return (
+                        <button
+                          key={node.id}
+                          type="button"
+                          className={`w-full rounded-md border px-2.5 py-2 text-left text-sm transition-colors ${
+                            isNodeSelected
+                              ? "border-primary/60 bg-primary/10 text-foreground"
+                              : "border-border/70 bg-background hover:bg-muted/50"
+                          }`}
+                          onClick={() => {
+                            setSelectedSectionId(section.id);
+                            setSelectedNodeId(node.id);
+                          }}
+                        >
+                          <p className="font-medium leading-5">{node.title}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/80">
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">{selectedNode ? selectedNode.title : "ノード未選択"}</CardTitle>
+                <CardDescription>本文の行間に会話ガイドとポイントを挿入できます。</CardDescription>
+              </div>
+              {selectedNode ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const defaultAfterLine = selectedScriptLines.length;
+                      updateGuides(selectedNode, (guides) => [
+                        ...guides,
+                        {
+                          id: `${selectedNode.id}-guide-${Date.now()}`,
+                          afterLine: defaultAfterLine,
+                          trigger: "",
+                          action: "",
+                        },
+                      ]);
+                    }}
+                  >
+                    <MessageSquarePlus className="size-4" aria-hidden="true" />
+                    会話ガイド追加
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const defaultAfterLine = selectedScriptLines.length;
+                      mutateNode(selectedNode.id, (node) => ({
+                        ...node,
+                        pointBlocks: [
+                          ...(node.pointBlocks ?? []),
+                          {
+                            afterLine: defaultAfterLine,
+                            mindset: "",
+                            skill: "",
+                          },
+                        ],
+                      }));
+                    }}
+                  >
+                    <Plus className="size-4" aria-hidden="true" />
+                    ポイント追加
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-5">
+            {!selectedNode ? (
+              <p className="text-sm text-muted-foreground">編集対象のノードを左の一覧から選択してください。</p>
+            ) : (
+              <>
+                <section className="space-y-3 rounded-lg border border-border/70 p-3">
+                  <h3 className="text-sm font-semibold">本文</h3>
+                  <div className="space-y-2">
+                    {selectedScriptLines.map((line, lineIndex) => (
+                      <div key={`${selectedNode.id}-line-${lineIndex}`} className="space-y-1.5 rounded-md border border-border/60 p-2.5">
+                        <p className="text-xs font-semibold text-muted-foreground">{lineIndex + 1}行目</p>
+                        <textarea
+                          value={line}
+                          onChange={(event) => {
+                            const nextLines = [...selectedScriptLines];
+                            nextLines[lineIndex] = event.target.value;
+                            mutateNode(selectedNode.id, (node) => normalizeNodeScriptLines(node, nextLines));
+                          }}
+                          className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                          spellCheck={false}
+                        />
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="xs"
+                            disabled={selectedScriptLines.length <= 1}
+                            onClick={() => {
+                              const nextLines = selectedScriptLines.filter((_, index) => index !== lineIndex);
+                              mutateNode(selectedNode.id, (node) => normalizeNodeScriptLines(node, nextLines));
+                            }}
+                          >
+                            行を削除
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const nextLines = [...selectedScriptLines, ""];
+                      mutateNode(selectedNode.id, (node) => normalizeNodeScriptLines(node, nextLines));
+                    }}
+                  >
+                    <Plus className="size-4" aria-hidden="true" />
+                    行を追加
+                  </Button>
+                </section>
+
+                <section className="space-y-3 rounded-lg border border-border/70 p-3">
+                  <h3 className="text-sm font-semibold">会話ガイド（分岐）</h3>
+                  {currentGuides.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">会話ガイドはまだありません。ノード右上の会話ガイド追加で作成できます。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentGuides.map((guide, guideIndex) => (
+                        <div key={guide.id} className="space-y-2 rounded-md border border-border/60 p-2.5">
+                          <div className="grid gap-2 md:grid-cols-[220px_minmax(0,1fr)]">
+                            <select
+                              value={String(guide.afterLine)}
+                              onChange={(event) => {
+                                const value = Number(event.target.value);
+                                updateGuides(selectedNode, (guides) =>
+                                  guides.map((item, index) =>
+                                    index === guideIndex
+                                      ? {
+                                          ...item,
+                                          afterLine: clampAfterLine(value, selectedScriptLines.length),
+                                        }
+                                      : item,
+                                  ),
+                                );
+                              }}
+                              className="h-9 rounded-md border border-border/70 bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                            >
+                              {afterLineOptions.map((option) => (
+                                <option key={`guide-${option.value}`} value={String(option.value)}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <Input
+                              value={guide.trigger}
+                              placeholder="相手の反応ラベル"
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                updateGuides(selectedNode, (guides) =>
+                                  guides.map((item, index) =>
+                                    index === guideIndex
+                                      ? {
+                                          ...item,
+                                          trigger: nextValue,
+                                        }
+                                      : item,
+                                  ),
+                                );
+                              }}
+                            />
+                          </div>
+                          <textarea
+                            value={guide.action}
+                            placeholder="返しトーク"
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              updateGuides(selectedNode, (guides) =>
+                                guides.map((item, index) =>
+                                  index === guideIndex
+                                    ? {
+                                        ...item,
+                                        action: nextValue,
+                                      }
+                                    : item,
+                                ),
+                              );
+                            }}
+                            className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={guideIndex === 0}
+                              onClick={() => {
+                                updateGuides(selectedNode, (guides) => arrayMove(guides, guideIndex, guideIndex - 1));
+                              }}
+                            >
+                              上へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={guideIndex === currentGuides.length - 1}
+                              onClick={() => {
+                                updateGuides(selectedNode, (guides) => arrayMove(guides, guideIndex, guideIndex + 1));
+                              }}
+                            >
+                              下へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              onClick={() => {
+                                updateGuides(selectedNode, (guides) => guides.filter((_, index) => index !== guideIndex));
+                              }}
+                            >
+                              削除
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3 rounded-lg border border-border/70 p-3">
+                  <h3 className="text-sm font-semibold">ポイント（行間挿入）</h3>
+                  {currentPointBlocks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">行間ポイントはまだありません。ノード右上のポイント追加で作成できます。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentPointBlocks.map((pointBlock, pointIndex) => (
+                        <div key={`${selectedNode.id}-point-${pointIndex}`} className="space-y-2 rounded-md border border-border/60 p-2.5">
+                          <select
+                            value={String(pointBlock.afterLine)}
+                            onChange={(event) => {
+                              const nextAfterLine = Number(event.target.value);
+                              mutateNode(selectedNode.id, (node) => ({
+                                ...node,
+                                pointBlocks: (node.pointBlocks ?? []).map((item, index) =>
+                                  index === pointIndex
+                                    ? {
+                                        ...item,
+                                        afterLine: clampAfterLine(nextAfterLine, selectedScriptLines.length),
+                                      }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                            className="h-9 w-full rounded-md border border-border/70 bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                          >
+                            {afterLineOptions.map((option) => (
+                              <option key={`point-${option.value}`} value={String(option.value)}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+
+                          <textarea
+                            value={pointBlock.mindset}
+                            placeholder="意識していること"
+                            onChange={(event) => {
+                              const nextMindset = event.target.value;
+                              mutateNode(selectedNode.id, (node) => ({
+                                ...node,
+                                pointBlocks: (node.pointBlocks ?? []).map((item, index) =>
+                                  index === pointIndex
+                                    ? {
+                                        ...item,
+                                        mindset: nextMindset,
+                                      }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                            className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                          />
+
+                          <textarea
+                            value={pointBlock.skill}
+                            placeholder="成績アップのコツ"
+                            onChange={(event) => {
+                              const nextSkill = event.target.value;
+                              mutateNode(selectedNode.id, (node) => ({
+                                ...node,
+                                pointBlocks: (node.pointBlocks ?? []).map((item, index) =>
+                                  index === pointIndex
+                                    ? {
+                                        ...item,
+                                        skill: nextSkill,
+                                      }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                            className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                          />
+
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={pointIndex === 0}
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  pointBlocks: arrayMove(node.pointBlocks ?? [], pointIndex, pointIndex - 1),
+                                }));
+                              }}
+                            >
+                              上へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={pointIndex === currentPointBlocks.length - 1}
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  pointBlocks: arrayMove(node.pointBlocks ?? [], pointIndex, pointIndex + 1),
+                                }));
+                              }}
+                            >
+                              下へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  pointBlocks: (node.pointBlocks ?? []).filter((_, index) => index !== pointIndex),
+                                }));
+                              }}
+                            >
+                              削除
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3 rounded-lg border border-border/70 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">従来ポイント（sectionTips）</h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        mutateNode(selectedNode.id, (node) => ({
+                          ...node,
+                          sectionTips: node.sectionTips
+                            ? undefined
+                            : {
+                                mindset: "",
+                                skill: "",
+                              },
+                        }));
+                      }}
+                    >
+                      {selectedNode.sectionTips ? "sectionTipsを削除" : "sectionTipsを追加"}
+                    </Button>
+                  </div>
+
+                  {selectedNode.sectionTips ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={selectedNode.sectionTips.mindset}
+                        placeholder="意識していること"
+                        onChange={(event) => {
+                          const nextMindset = event.target.value;
+                          mutateNode(selectedNode.id, (node) => ({
+                            ...node,
+                            sectionTips: {
+                              mindset: nextMindset,
+                              skill: node.sectionTips?.skill ?? "",
+                            },
+                          }));
+                        }}
+                        className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                      />
+
+                      <textarea
+                        value={selectedNode.sectionTips.skill}
+                        placeholder="成績アップのコツ"
+                        onChange={(event) => {
+                          const nextSkill = event.target.value;
+                          mutateNode(selectedNode.id, (node) => ({
+                            ...node,
+                            sectionTips: {
+                              mindset: node.sectionTips?.mindset ?? "",
+                              skill: nextSkill,
+                            },
+                          }));
+                        }}
+                        className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">sectionTips が未設定です。必要な場合は追加ボタンで作成してください。</p>
+                  )}
+                </section>
+              </>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              <Button type="button" onClick={() => void handleSave()} disabled={isSaving || !isDirty}>
+                {isSaving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
+                保存
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSaving}
+                onClick={() => {
+                  setDraftTalk(cloneTalk(talk));
+                  setIsDirty(false);
+                  setSaveError(null);
+                  setSaveMessage(null);
+                }}
+              >
+                入力をリセット
+              </Button>
+            </div>
+
+            {saveMessage ? (
+              <p className="flex items-center gap-1.5 text-sm text-emerald-700">
+                <CheckCircle2 className="size-4" aria-hidden="true" />
+                {saveMessage}
+              </p>
+            ) : null}
+            {saveError ? (
+              <p className="flex items-center gap-1.5 text-sm text-destructive">
+                <TriangleAlert className="size-4" aria-hidden="true" />
+                {saveError}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
