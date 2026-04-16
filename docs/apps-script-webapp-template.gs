@@ -29,6 +29,32 @@ function doGet(e) {
   }
 
   try {
+    const action = (e && e.parameter && e.parameter.action) || "";
+
+    if (action === "whoami") {
+      const allowDebug = getDomainAllowanceDebug_(safeEmail_());
+
+      return sendResponse_(
+        {
+          ok: true,
+          message: allowDebug.email
+            ? "判定対象のメールアドレスを取得できました"
+            : "メールアドレスを取得できませんでした。Google アカウントの状態を確認してください",
+          data: {
+            action: "whoami",
+            email: allowDebug.email,
+            isAllowed: allowDebug.allowed,
+            matchedAllowedEmail: allowDebug.matchedAllowedEmail,
+            matchedAllowedDomain: allowDebug.matchedAllowedDomain,
+            allowedDomain: allowDebug.allowedDomain,
+            allowedEmailsCount: allowDebug.allowedEmailsCount,
+          },
+        },
+        200,
+        callback,
+      );
+    }
+
     const userEmail = getUserEmail_();
 
     if (!isDomainAllowed_(userEmail)) {
@@ -45,7 +71,6 @@ function doGet(e) {
       );
     }
 
-    const action = (e && e.parameter && e.parameter.action) || "";
     const canEdit = isEditor_(userEmail);
     const isAdmin = isAdmin_(userEmail);
 
@@ -110,7 +135,7 @@ function doGet(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "指定された action はサポートされていません（bootstrap / authorize / listEditorPermissions）",
+              "指定された action はサポートされていません（bootstrap / authorize / listEditorPermissions / whoami）",
           },
         },
         400,
@@ -802,12 +827,13 @@ function appendAudit_(action, talkId, actorEmail, result, detail) {
 }
 
 function isDomainAllowed_(email) {
+  return getDomainAllowanceDebug_(email).allowed;
+}
+
+function getDomainAllowanceDebug_(email) {
   const normalizedEmail = String(email || "")
     .toLowerCase()
     .trim();
-  if (!normalizedEmail) {
-    return false;
-  }
 
   const allowedEmailsText = prop_("ALLOWED_EMAILS", "");
   const allowedEmails = allowedEmailsText
@@ -821,21 +847,23 @@ function isDomainAllowed_(email) {
       return item !== "";
     });
 
-  if (allowedEmails.indexOf(normalizedEmail) !== -1) {
-    return true;
-  }
+  const matchedAllowedEmail =
+    normalizedEmail !== "" && allowedEmails.indexOf(normalizedEmail) !== -1;
 
   const domain = prop_("ALLOWED_DOMAIN", "").toLowerCase().trim();
-  if (!domain) {
-    return false;
-  }
-
   const match = normalizedEmail.match(/@(.+)$/);
-  if (!match) {
-    return false;
-  }
+  const matchedAllowedDomain = Boolean(
+    normalizedEmail !== "" && domain && match && match[1] === domain,
+  );
 
-  return match[1] === domain;
+  return {
+    email: normalizedEmail,
+    allowedDomain: domain,
+    allowedEmailsCount: allowedEmails.length,
+    matchedAllowedEmail: matchedAllowedEmail,
+    matchedAllowedDomain: matchedAllowedDomain,
+    allowed: matchedAllowedEmail || matchedAllowedDomain,
+  };
 }
 
 function getUserEmail_() {
