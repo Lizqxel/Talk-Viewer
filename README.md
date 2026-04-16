@@ -116,8 +116,8 @@ src/
 ### 権限管理（admin専用タブ）
 
 - admin ユーザーにのみナビゲーションへ「権限管理」タブを表示
-- ページは `/admin/script-permissions` で、Editors シートの権限を付与・更新可能
-- 一覧取得は `doGet(action=listEditorPermissions)`、更新は `doPost(action=upsertEditorPermission)`
+- ページは `/admin/script-permissions` で、Editors シートの権限を付与・更新・削除可能
+- 一覧取得は `doGet(action=listEditorPermissions)`、更新は `doPost(action=upsertEditorPermission)`、削除は `doPost(action=deleteEditorPermission)`
 - `Editors` シートは少なくとも以下の列を持つことを推奨
 
 ```text

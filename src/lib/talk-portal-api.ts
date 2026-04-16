@@ -40,6 +40,10 @@ export interface ScriptEditorPermissionUpsertResult {
   isAdmin: boolean;
 }
 
+export interface ScriptEditorPermissionDeleteResult {
+  email: string;
+}
+
 export interface TalkBootstrapPayload {
   announcements: Announcement[];
   dailyHighlights: DailyHighlight[];
@@ -437,6 +441,42 @@ function resolveEditorPermission(raw: unknown): ScriptEditorPermission | null {
     const resolved = normalizeEditorPermission(nested);
     if (resolved) {
       return resolved;
+    }
+  }
+
+  return null;
+}
+
+function resolveDeletedEditorEmail(raw: unknown): string | null {
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return null;
+  }
+
+  const candidates: unknown[] = [];
+  if ("data" in envelope) {
+    candidates.push(envelope.data);
+  }
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    const record = asRecord(candidate);
+    if (!record) {
+      continue;
+    }
+
+    const deleted = pickFirstValue(record, ["deleted", "removed", "editor", "item"]);
+    const deletedRecord = asRecord(deleted);
+    if (deletedRecord) {
+      const deletedEmail = pickFirstValue(deletedRecord, ["email", "mail", "メール"]);
+      if (deletedEmail) {
+        return String(deletedEmail).trim().toLowerCase();
+      }
+    }
+
+    const directEmail = pickFirstValue(record, ["email", "editorEmail", "targetEmail", "mail", "メール"]);
+    if (directEmail) {
+      return String(directEmail).trim().toLowerCase();
     }
   }
 
@@ -1054,6 +1094,101 @@ export async function upsertScriptEditorPermission(
       isActive: savedPermission.isActive,
       isAdmin: savedPermission.isAdmin,
     };
+  }
+}
+
+export async function deleteScriptEditorPermission(
+  emailInput: string,
+): Promise<ScriptEditorPermissionDeleteResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const email = emailInput.trim().toLowerCase();
+  if (!email) {
+    throw new TalkPortalApiError("削除対象のメールアドレスを入力してください", 400, "INVALID_EDITOR_EMAIL");
+  }
+
+  const endpoint = new URL(API_URL);
+  const body = JSON.stringify({
+    action: "deleteEditorPermission",
+    email,
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "編集権限の削除に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "編集権限の削除に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    return {
+      email: resolveDeletedEditorEmail(json) ?? email,
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "編集権限削除リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const verification = await fetchScriptEditorPermissionsViaJsonp();
+    const stillExists = verification.some((item) => item.email === email);
+
+    if (stillExists) {
+      throw new TalkPortalApiError(
+        "削除後の再取得で編集権限が残っています",
+        0,
+        "DELETE_VERIFY_FAILED",
+      );
+    }
+
+    return { email };
   }
 }
 

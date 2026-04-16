@@ -109,7 +109,8 @@ function doGet(e) {
           ok: false,
           error: {
             code: "INVALID_ACTION",
-            message: "指定された action はサポートされていません（bootstrap / authorize / listEditorPermissions）",
+            message:
+              "指定された action はサポートされていません（bootstrap / authorize / listEditorPermissions）",
           },
         },
         400,
@@ -229,13 +230,57 @@ function doPost(e) {
       });
     }
 
+    if (action === "deleteEditorPermission") {
+      if (!isAdmin) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_ADMIN",
+              message: "管理者権限がありません",
+            },
+          },
+          403,
+        );
+      }
+
+      var targetEmail = normalizeEmail_(body.email || body.editorEmail || (body.editor && body.editor.email));
+      if (!targetEmail) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_EDITOR",
+              message: "削除対象のメールアドレスが必要です",
+            },
+          },
+          400,
+        );
+      }
+
+      var deleted = deleteEditorPermission_(targetEmail, userEmail);
+      appendAudit_("deleteEditorPermission", "", userEmail, "ok", deleted.email);
+
+      return jsonResponse_({
+        ok: true,
+        user: {
+          email: userEmail,
+          canEdit: canEdit,
+          isAdmin: isAdmin,
+        },
+        data: {
+          deleted: deleted,
+        },
+      });
+    }
+
     if (action !== "updateTalk") {
       return jsonResponse_(
         {
           ok: false,
           error: {
             code: "INVALID_ACTION",
-            message: "updateTalk / upsertEditorPermission をサポートしています",
+            message: "updateTalk / upsertEditorPermission / deleteEditorPermission をサポートしています",
           },
         },
         400,
@@ -531,7 +576,9 @@ function parseBoolean_(value, fallback) {
 
 function parseAdminByRow_(row, idx) {
   var explicit = getRowValueByKeys_(row, idx, ["is_admin", "isAdmin", "管理者"]);
-  var explicitText = String(explicit || "").toLowerCase().trim();
+  var explicitText = String(explicit || "")
+    .toLowerCase()
+    .trim();
 
   if (explicitText !== "") {
     return parseBoolean_(explicit, false);
@@ -589,10 +636,18 @@ function getEditorPermissionMapByEmail_(values) {
 
     map[email] = {
       email: email,
-      canEdit: parseBoolean_(getRowValueByKeys_(row, idx, ["can_edit", "canEdit", "編集可"]), false),
-      isActive: parseBoolean_(getRowValueByKeys_(row, idx, ["is_active", "isActive", "有効"]), true),
+      canEdit: parseBoolean_(
+        getRowValueByKeys_(row, idx, ["can_edit", "canEdit", "編集可"]),
+        false,
+      ),
+      isActive: parseBoolean_(
+        getRowValueByKeys_(row, idx, ["is_active", "isActive", "有効"]),
+        true,
+      ),
       isAdmin: parseAdminByRow_(row, idx),
-      updatedAt: String(getRowValueByKeys_(row, idx, ["updated_at", "updatedAt", "更新日時"]) || ""),
+      updatedAt: String(
+        getRowValueByKeys_(row, idx, ["updated_at", "updatedAt", "更新日時"]) || "",
+      ),
       updatedBy: String(getRowValueByKeys_(row, idx, ["updated_by", "updatedBy", "更新者"]) || ""),
     };
   }
@@ -699,6 +754,41 @@ function upsertEditorPermission_(editor, actorEmail) {
     isAdmin: isAdmin,
     updatedAt: now,
     updatedBy: actor,
+  };
+}
+
+function deleteEditorPermission_(email, actorEmail) {
+  var sheet = getSheet_(prop_("EDITORS_SHEET", "Editors"));
+  var values = sheet.getDataRange().getValues();
+  if (!values || values.length <= 1) {
+    throw new Error("削除対象の編集権限が見つかりません");
+  }
+
+  var idx = indexMap_(values[0]);
+  var normalizedEmail = normalizeEmail_(email);
+  if (!normalizedEmail) {
+    throw new Error("削除対象のメールアドレスが不正です");
+  }
+
+  var targetRowNumber = -1;
+  for (var i = 1; i < values.length; i += 1) {
+    var rowEmail = normalizeEmail_(getRowValueByKeys_(values[i], idx, ["email", "mail", "メール"]));
+    if (rowEmail === normalizedEmail) {
+      targetRowNumber = i + 1;
+      break;
+    }
+  }
+
+  if (targetRowNumber === -1) {
+    throw new Error("削除対象の編集権限が見つかりません: " + normalizedEmail);
+  }
+
+  sheet.deleteRow(targetRowNumber);
+
+  return {
+    email: normalizedEmail,
+    deletedBy: normalizeEmail_(actorEmail),
+    deletedAt: Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM-dd HH:mm:ss"),
   };
 }
 

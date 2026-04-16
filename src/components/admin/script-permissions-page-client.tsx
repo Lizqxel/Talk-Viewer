@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, ShieldCheck, TriangleAlert, UserRoundPlus } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, ShieldCheck, Trash2, TriangleAlert, UserRoundPlus } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  deleteScriptEditorPermission,
   fetchScriptEditorPermissions,
   type ScriptEditorPermission,
   upsertScriptEditorPermission,
@@ -48,10 +49,12 @@ export function ScriptPermissionsPageClient() {
   const [form, setForm] = useState(defaultFormState);
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingEmail, setDeletingEmail] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const canManagePermissions = Boolean(data?.user?.isAdmin);
+  const currentUserEmail = normalizeEmail(data?.user?.email ?? "");
   const normalizedFormEmail = useMemo(() => normalizeEmail(form.email), [form.email]);
 
   const loadPermissions = useCallback(async () => {
@@ -161,6 +164,44 @@ export function ScriptPermissionsPageClient() {
     setSaveMessage(null);
   };
 
+  const handleDelete = async (targetEmail: string) => {
+    const normalizedTargetEmail = normalizeEmail(targetEmail);
+    if (!normalizedTargetEmail) {
+      return;
+    }
+
+    const selfDeleteWarning =
+      normalizedTargetEmail === currentUserEmail
+        ? "現在ログイン中の管理者アカウントです。削除するとこの画面に再アクセスできなくなる可能性があります。"
+        : "";
+
+    const confirmed = window.confirm(
+      `${normalizedTargetEmail} の編集権限を削除しますか？\n${selfDeleteWarning}`.trim(),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingEmail(normalizedTargetEmail);
+    setSaveError(null);
+    setSaveMessage(null);
+
+    try {
+      const result = await deleteScriptEditorPermission(normalizedTargetEmail);
+      setSaveMessage(`${result.email} の編集権限を削除しました。`);
+
+      if (editingEmail === result.email) {
+        resetForm();
+      }
+
+      await loadPermissions();
+    } catch (caught) {
+      setSaveError(getFailureMessage(caught));
+    } finally {
+      setDeletingEmail(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="space-y-1">
@@ -192,7 +233,7 @@ export function ScriptPermissionsPageClient() {
                 value={form.email}
                 onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
                 placeholder="example@bb-connection.com"
-                disabled={isSaving}
+                disabled={isSaving || Boolean(deletingEmail)}
                 className="max-w-md"
               />
               {emailConflict ? <p className="text-xs text-amber-700">同じメールが既に存在します。更新の場合はそのまま保存してください。</p> : null}
@@ -205,7 +246,7 @@ export function ScriptPermissionsPageClient() {
                   className="size-4 rounded border-border"
                   checked={form.canEdit}
                   onChange={(event) => setForm((prev) => ({ ...prev, canEdit: event.target.checked }))}
-                  disabled={isSaving}
+                  disabled={isSaving || Boolean(deletingEmail)}
                 />
                 can_edit
               </label>
@@ -216,7 +257,7 @@ export function ScriptPermissionsPageClient() {
                   className="size-4 rounded border-border"
                   checked={form.isActive}
                   onChange={(event) => setForm((prev) => ({ ...prev, isActive: event.target.checked }))}
-                  disabled={isSaving}
+                  disabled={isSaving || Boolean(deletingEmail)}
                 />
                 is_active
               </label>
@@ -227,18 +268,18 @@ export function ScriptPermissionsPageClient() {
                   className="size-4 rounded border-border"
                   checked={form.isAdmin}
                   onChange={(event) => setForm((prev) => ({ ...prev, isAdmin: event.target.checked }))}
-                  disabled={isSaving}
+                  disabled={isSaving || Boolean(deletingEmail)}
                 />
                 is_admin
               </label>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" disabled={isSaving}>
+              <Button type="submit" disabled={isSaving || Boolean(deletingEmail)}>
                 {isSaving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
                 保存
               </Button>
-              <Button type="button" variant="outline" disabled={isSaving} onClick={resetForm}>
+              <Button type="button" variant="outline" disabled={isSaving || Boolean(deletingEmail)} onClick={resetForm}>
                 入力をクリア
               </Button>
             </div>
@@ -265,9 +306,9 @@ export function ScriptPermissionsPageClient() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="text-base">現在の編集権限一覧</CardTitle>
-              <CardDescription>Apps Script から取得した Editors 一覧です。</CardDescription>
+              <CardDescription>Apps Script から取得した Editors 一覧です。編集・削除ができます。</CardDescription>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => void loadPermissions()} disabled={isFetching}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadPermissions()} disabled={isFetching || Boolean(deletingEmail)}>
               {isFetching ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="size-4" aria-hidden="true" />}
               再取得
             </Button>
@@ -317,9 +358,31 @@ export function ScriptPermissionsPageClient() {
                       <td className="px-3 py-2 text-xs text-muted-foreground">{item.updatedAt ?? "-"}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{item.updatedBy ?? "-"}</td>
                       <td className="px-3 py-2">
-                        <Button type="button" variant="ghost" size="sm" onClick={() => startEdit(item)}>
-                          編集
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => startEdit(item)}
+                            disabled={isSaving || Boolean(deletingEmail)}
+                          >
+                            編集
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => void handleDelete(item.email)}
+                            disabled={isSaving || Boolean(deletingEmail)}
+                          >
+                            {deletingEmail === item.email ? (
+                              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <Trash2 className="size-4" aria-hidden="true" />
+                            )}
+                            削除
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
