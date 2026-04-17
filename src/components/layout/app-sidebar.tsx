@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpenText, House, KeyRound, Layers3 } from "lucide-react";
 
+import { AcquiredPointButton } from "@/components/talk/acquired-point-button";
 import { ClosingActionButton } from "@/components/talk/closing-action-button";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { cn } from "@/lib/utils";
@@ -90,7 +91,8 @@ export function AppSidebar() {
         {isTalkDetailPage ? (
           <>
             <ClosingManagerSidebarSummary />
-            <ClosingActionButton className="mb-3 h-12 w-full text-sm font-semibold" />
+            <ClosingActionButton className="mb-2 h-12 w-full text-sm font-semibold" />
+            <AcquiredPointButton className="mb-3 h-12 w-full text-sm font-semibold" />
           </>
         ) : null}
 
