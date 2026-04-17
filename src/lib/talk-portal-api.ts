@@ -6,6 +6,7 @@
   type RecentUpdate,
   type Talk,
   type TalkCategory,
+  type TalkNode,
   type TalkProduct,
   type TalkScene,
 } from "@/types/talk";
@@ -290,6 +291,89 @@ type LegacySectionTips = {
   skill?: unknown;
 };
 
+function clampAfterLine(value: number, maxLine: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(0, Math.trunc(value)), maxLine);
+}
+
+function getNodeScriptLines(node: TalkNode) {
+  return node.readAloudScript && node.readAloudScript.length > 0 ? node.readAloudScript : node.lines;
+}
+
+function tryParseLegacyBranchText(text: string): { trigger: string; action: string } | null {
+  const arrow = text.includes("→") ? "→" : text.includes("->") ? "->" : null;
+  if (!arrow) {
+    return null;
+  }
+
+  const [triggerRaw, actionRaw] = text.split(arrow, 2);
+  const trigger = String(triggerRaw ?? "").trim();
+  const action = String(actionRaw ?? "").trim();
+
+  if (!trigger || !action) {
+    return null;
+  }
+
+  return { trigger, action };
+}
+
+function normalizeTalkListForBranchGuides(talks: Talk[]): Talk[] {
+  return talks.map((talk) => ({
+    ...talk,
+    nodes: talk.nodes.map((node) => {
+      const scriptLines = getNodeScriptLines(node);
+      const maxAfterLine = scriptLines.length;
+
+      const normalizedStructuredGuides = (node.branchGuides ?? []).map((guide) => ({
+        afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
+        trigger: String(guide.trigger ?? ""),
+        action: String(guide.action ?? ""),
+      }));
+
+      const legacyGuides = (node.inlineNotes ?? [])
+        .filter((note) => note.tone === "branch")
+        .map((note) => {
+          const parsed = tryParseLegacyBranchText(String(note.text ?? ""));
+          if (!parsed) {
+            return null;
+          }
+
+          return {
+            afterLine: clampAfterLine(note.afterLine, maxAfterLine),
+            trigger: parsed.trigger,
+            action: parsed.action,
+          };
+        })
+        .filter((guide): guide is { afterLine: number; trigger: string; action: string } => Boolean(guide));
+
+      const mergedGuides = [...normalizedStructuredGuides];
+      for (const legacyGuide of legacyGuides) {
+        const duplicated = mergedGuides.some(
+          (guide) =>
+            guide.afterLine === legacyGuide.afterLine &&
+            guide.trigger === legacyGuide.trigger &&
+            guide.action === legacyGuide.action,
+        );
+
+        if (!duplicated) {
+          mergedGuides.push(legacyGuide);
+        }
+      }
+
+      const remainingInlineNotes = (node.inlineNotes ?? []).filter((note) => note.tone !== "branch");
+
+      return {
+        ...node,
+        branchGuides: mergedGuides.length > 0 ? mergedGuides : undefined,
+        inlineNotes: remainingInlineNotes.length > 0 ? remainingInlineNotes : undefined,
+      };
+    }),
+  }));
+}
+
 function normalizeTalkListForPointBlocks(talks: Talk[]): Talk[] {
   return talks.map((talk) => ({
     ...talk,
@@ -318,7 +402,7 @@ function normalizeTalkListForPointBlocks(talks: Talk[]): Talk[] {
       const { sectionTips: _legacySectionTips, ...restNode } = nodeRecord;
 
       return {
-        ...(restNode as Talk),
+        ...(restNode as TalkNode),
         pointBlocks: nextPointBlocks,
       } as typeof node;
     }),
@@ -327,7 +411,8 @@ function normalizeTalkListForPointBlocks(talks: Talk[]): Talk[] {
 
 function normalizeBootstrap(raw: unknown): TalkBootstrapPayload {
   const payload = resolvePayload(raw) as LooseRecord;
-  const normalizedTalks = normalizeTalkListForPointBlocks(pickArray<Talk>(payload, ["talks", "トーク"]));
+  const talks = pickArray<Talk>(payload, ["talks", "トーク"]);
+  const normalizedTalks = normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(talks));
 
   return {
     announcements: pickArray<Announcement>(payload, ["announcements", "アナウンス"]),
@@ -1270,7 +1355,7 @@ export async function getMockBootstrapPayload(): Promise<TalkBootstrapPayload> {
     talkTags: mockTalkTags,
     productLabels: mockProductLabels,
     sceneLabels: mockSceneLabels,
-    talks: normalizeTalkListForPointBlocks(mockTalks),
+    talks: normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(mockTalks)),
     user: {
       canEdit: false,
       isAdmin: false,

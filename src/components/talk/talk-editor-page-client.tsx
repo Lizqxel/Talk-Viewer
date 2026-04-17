@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { deriveTalkSections } from "@/lib/talk-sections";
 import { updateTalkByApi } from "@/lib/talk-portal-api";
-import { type Talk, type TalkNode } from "@/types/talk";
+import { type Talk, type TalkBranchGuide, type TalkNode } from "@/types/talk";
 
 interface TalkEditorPageClientProps {
   talkId: string;
@@ -58,6 +58,15 @@ function parseArrowText(text: string): { trigger: string; action: string } | nul
 }
 
 function extractBranchGuides(node: TalkNode): BranchGuideDraft[] {
+  if ((node.branchGuides?.length ?? 0) > 0) {
+    return node.branchGuides!.map((guide, index) => ({
+      id: `${node.id}-guide-${index}`,
+      afterLine: guide.afterLine,
+      trigger: guide.trigger,
+      action: guide.action,
+    }));
+  }
+
   return (node.inlineNotes ?? [])
     .map((note, index) => {
       if (note.tone !== "branch") {
@@ -94,24 +103,11 @@ function normalizeNodeScriptLines(node: TalkNode, nextLines: string[]): TalkNode
       ...point,
       afterLine: clampAfterLine(point.afterLine, maxAfterLine),
     })),
+    branchGuides: (node.branchGuides ?? []).map((guide) => ({
+      ...guide,
+      afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
+    })),
   };
-}
-
-function buildInlineNotes(node: TalkNode, guides: BranchGuideDraft[], maxAfterLine: number) {
-  const preservedNotes = (node.inlineNotes ?? []).filter((note) => {
-    if (note.tone !== "branch") {
-      return true;
-    }
-    return !parseArrowText(note.text);
-  });
-
-  const branchNotes = guides.map((guide) => ({
-    afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
-    text: `${guide.trigger}→${guide.action}`,
-    tone: "branch" as const,
-  }));
-
-  return [...preservedNotes, ...branchNotes];
 }
 
 function getAfterLineOptions(lines: string[]) {
@@ -153,8 +149,22 @@ function updateNodeById(talk: Talk, nodeId: string, updater: (node: TalkNode) =>
 function normalizeTalkForSave(talk: Talk): Talk {
   return {
     ...talk,
-    nodes: talk.nodes.map((node) => normalizeNodeScriptLines(node, getScriptLines(node))),
+    nodes: talk.nodes.map((node) => {
+      const normalizedNode = normalizeNodeScriptLines(node, getScriptLines(node));
+      const inlineNotesWithoutBranch = (normalizedNode.inlineNotes ?? []).filter((note) => note.tone !== "branch");
+
+      return {
+        ...normalizedNode,
+        inlineNotes: inlineNotesWithoutBranch.length > 0 ? inlineNotesWithoutBranch : undefined,
+      };
+    }),
   };
+}
+
+function hasIncompleteBranchGuide(talk: Talk) {
+  return talk.nodes.some((node) =>
+    (node.branchGuides ?? []).some((guide) => !guide.trigger.trim() || !guide.action.trim()),
+  );
 }
 
 function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
@@ -244,10 +254,15 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     const currentGuides = extractBranchGuides(node);
     const nextGuides = updater(currentGuides);
     const maxAfterLine = getScriptLines(node).length;
+    const normalizedGuides: TalkBranchGuide[] = nextGuides.map((guide) => ({
+      afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
+      trigger: guide.trigger,
+      action: guide.action,
+    }));
 
     mutateNode(node.id, (currentNode) => ({
       ...currentNode,
-      inlineNotes: buildInlineNotes(currentNode, nextGuides, maxAfterLine),
+      branchGuides: normalizedGuides,
     }));
   };
 
@@ -291,9 +306,15 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   }
 
   const handleSave = async () => {
-    setIsSaving(true);
     setSaveError(null);
     setSaveMessage(null);
+
+    if (hasIncompleteBranchGuide(draftTalk)) {
+      setSaveError("会話ガイドに未入力があります");
+      return;
+    }
+
+    setIsSaving(true);
 
     try {
       const normalized = normalizeTalkForSave(draftTalk);

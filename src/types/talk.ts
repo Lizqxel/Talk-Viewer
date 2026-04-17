@@ -18,6 +18,12 @@ export interface TalkPointBlock {
   skill: string;
 }
 
+export interface TalkBranchGuide {
+  afterLine: number;
+  trigger: string;
+  action: string;
+}
+
 export interface TalkNode {
   id: string;
   title: string;
@@ -29,6 +35,7 @@ export interface TalkNode {
   operatorNotes?: string[];
   conditions?: string[];
   doNotRead?: string[];
+  branchGuides?: TalkBranchGuide[];
   pointBlocks?: TalkPointBlock[];
   inlineNotes?: {
     afterLine: number;
