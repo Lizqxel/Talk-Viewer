@@ -101,6 +101,27 @@ src/
 - API URL は必ず Web アプリの `/exec` URL を使用（`/echo?user_content_key=...` は使用しない）
 - `ALLOWED_RETURN_HOSTS` に許可する戻り先ホストを設定（例: `lizqxel.github.io,localhost:3000`）
 
+### Closing シート設計（1 URL運用）
+
+- シート名: `Closing`（Script Properties の `CLOSING_SHEET` で変更可能）
+- 1ユーザー1行で管理し、日付・月替わりはAPI内部で自動リセット
+
+```text
+email,
+day_key,
+month_key,
+today_closing_count,
+today_acquired_pt,
+today_dialog_count,
+monthly_closing_count,
+last_closing_at,
+updated_at,
+updated_by
+```
+
+- 監査ログは `ClosingAudit`（`CLOSING_AUDIT_SHEET`）へ追記
+- `docs/apps-script-webapp-template.gs` をデプロイしたら、必ず「新しいデプロイ」を作成して `/exec` URL 側を更新
+
 ### 認証トラブル時の確認
 
 1. `NEXT_PUBLIC_TALK_API_URL` が `/exec` 形式になっていることを確認

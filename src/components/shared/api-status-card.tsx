@@ -39,13 +39,14 @@ export function ApiStatusCard({ error, isLoading, onRetry }: ApiStatusCardProps)
     error.code === "BOOTSTRAP_TIMEOUT" ||
     error.code === "JSONP_TIMEOUT" ||
     error.code === "JSONP_LOAD_ERROR";
+  const isClosingWriteNotConfirmed = error.code === "CLOSING_WRITE_NOT_CONFIRMED";
   const isAccountBlockedScreen = isDomainBlocked || isUnauthenticated || isLikelyUnapprovedAccount;
   const shouldShowAuthorizeLink =
     isDomainBlocked ||
     isUnauthenticated ||
     isLikelyUnapprovedAccount;
   const isUnauthorized = isDomainBlocked || isUnauthenticated || error.status === 403;
-  const isConfigError = error.code === "MISSING_API_URL";
+  const isConfigError = error.code === "MISSING_API_URL" || error.code === "MISCONFIGURED_TALK_API_URL";
   const authorizeUrl = getTalkPortalAuthorizeUrl();
 
   const Icon = isUnauthorized ? LockKeyhole : isConfigError ? Settings : AlertTriangle;
@@ -55,6 +56,8 @@ export function ApiStatusCard({ error, isLoading, onRetry }: ApiStatusCardProps)
       ? "許可されていないアカウントです"
     : isUnauthenticated
       ? "社内アカウントで認証されていません"
+    : isClosingWriteNotConfirmed
+      ? "クロージング保存が反映されていません"
       : isUnauthorized
         ? "アクセス権限がありません"
     : isConfigError
@@ -66,10 +69,12 @@ export function ApiStatusCard({ error, isLoading, onRetry }: ApiStatusCardProps)
       ? "このアカウントでは利用できません。許可済みの社内Googleアカウントに切り替えて再読み込みしてください。"
     : isUnauthenticated
       ? "Googleアカウントが認証できていません。許可されたGoogleアカウントでログインして再読み込みしてください。"
+    : isClosingWriteNotConfirmed
+      ? "recordClosing の保存確認ができませんでした。Apps Script のデプロイを最新化し、NEXT_PUBLIC_TALK_API_URL がその /exec URL を指しているか確認してください。"
     : isUnauthorized
       ? "アクセス権限がありません。管理者へ権限付与を依頼してください。"
     : isConfigError
-      ? "NEXT_PUBLIC_TALK_API_URL を設定してビルドし直してください。"
+      ? "NEXT_PUBLIC_TALK_API_URL を正しい Talk API の /exec URL に設定して、開発サーバーを再起動してください。"
       : error.message;
 
   if (isAccountBlockedScreen) {

@@ -8,6 +8,8 @@
  * - TALKS_SHEET     (default: Talks)
  * - EDITORS_SHEET   (default: Editors)
  * - AUDIT_SHEET     (default: AuditLog)
+ * - CLOSING_SHEET   (default: Closing)
+ * - CLOSING_AUDIT_SHEET   (default: ClosingAudit)
  * - ALLOWED_RETURN_HOSTS (optional, comma-separated. ex: lizqxel.github.io,localhost:3000)
  */
 
@@ -128,6 +130,138 @@ function doGet(e) {
       );
     }
 
+    if (
+      action === "closingDashboard" ||
+      action === "getClosingDashboard" ||
+      action === "getClosingMetrics"
+    ) {
+      var targetEmail = normalizeEmail_(
+        e && e.parameter && e.parameter.email ? e.parameter.email : userEmail,
+      );
+
+      if (!isAdmin && targetEmail !== normalizeEmail_(userEmail)) {
+        return sendResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_TARGET",
+              message: "他ユーザーのダッシュボードは取得できません",
+            },
+          },
+          403,
+          callback,
+        );
+      }
+
+      var now = new Date();
+      var dayKey =
+        e && e.parameter && e.parameter.dayKey
+          ? String(e.parameter.dayKey)
+          : formatTokyoDayKey_(now);
+      var monthKey =
+        e && e.parameter && e.parameter.monthKey
+          ? String(e.parameter.monthKey)
+          : formatTokyoMonthKey_(now);
+
+      var dashboard = getClosingDashboardByEmail_(targetEmail, dayKey, monthKey);
+
+      return sendResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            closing: dashboard,
+          },
+        },
+        200,
+        callback,
+      );
+    }
+
+    if (
+      action === "closingInactivityAlerts" ||
+      action === "closingAlerts" ||
+      action === "listClosingAlerts"
+    ) {
+      if (!isAdmin) {
+        return sendResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_ADMIN",
+              message: "管理者権限がありません",
+            },
+          },
+          403,
+          callback,
+        );
+      }
+
+      var thresholdMinutes = parseNumber_(
+        e && e.parameter && e.parameter.thresholdMinutes ? e.parameter.thresholdMinutes : 15,
+        15,
+      );
+
+      return sendResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            alerts: listClosingInactivityAlerts_(thresholdMinutes, new Date()),
+          },
+        },
+        200,
+        callback,
+      );
+    }
+
+    if (
+      action === "recordClosing" ||
+      action === "incrementClosing" ||
+      action === "addClosingCount"
+    ) {
+      if (!canEdit) {
+        return sendResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_EDITOR",
+              message: "編集権限がありません",
+            },
+          },
+          403,
+          callback,
+        );
+      }
+
+      var recordedByGet = recordClosing_(userEmail, new Date());
+      appendClosingAudit_("recordClosing", userEmail, "ok", "today=" + recordedByGet.todayClosingCount + ", via=get");
+
+      return sendResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            closing: recordedByGet,
+          },
+        },
+        200,
+        callback,
+      );
+    }
+
     if (action !== "bootstrap") {
       return sendResponse_(
         {
@@ -135,7 +269,7 @@ function doGet(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "指定された action はサポートされていません（bootstrap / authorize / listEditorPermissions / whoami）",
+              "指定された action はサポートされていません（bootstrap / authorize / listEditorPermissions / whoami / closingDashboard / closingInactivityAlerts / recordClosing）",
           },
         },
         400,
@@ -301,6 +435,151 @@ function doPost(e) {
       });
     }
 
+    if (
+      action === "recordClosing" ||
+      action === "incrementClosing" ||
+      action === "addClosingCount"
+    ) {
+      if (!canEdit) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_EDITOR",
+              message: "編集権限がありません",
+            },
+          },
+          403,
+        );
+      }
+
+      var recorded = recordClosing_(userEmail, new Date());
+      appendClosingAudit_("recordClosing", userEmail, "ok", "today=" + recorded.todayClosingCount);
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            closing: recorded,
+          },
+        },
+        200,
+      );
+    }
+
+    if (action === "updateClosingStats" || action === "upsertClosingStats") {
+      if (!canEdit) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_EDITOR",
+              message: "編集権限がありません",
+            },
+          },
+          403,
+        );
+      }
+
+      var updated = upsertClosingStats_(userEmail, body, new Date());
+      appendClosingAudit_(
+        "updateClosingStats",
+        userEmail,
+        "ok",
+        "pt=" + updated.todayAcquiredPt + ", dialog=" + updated.todayDialogCount,
+      );
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            closing: updated,
+          },
+        },
+        200,
+      );
+    }
+
+    if (action === "resetClosingDaily") {
+      var targetEmail = normalizeEmail_(body.email || userEmail);
+      if (!isAdmin && targetEmail !== normalizeEmail_(userEmail)) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_TARGET",
+              message: "他ユーザーの日次リセットは管理者のみ可能です",
+            },
+          },
+          403,
+        );
+      }
+
+      var dayKey = body.dayKey ? String(body.dayKey) : formatTokyoDayKey_(new Date());
+      var resetDaily = resetClosingDaily_(targetEmail, dayKey, userEmail, new Date());
+      appendClosingAudit_("resetClosingDaily", userEmail, "ok", targetEmail + ":" + dayKey);
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            closing: resetDaily,
+          },
+        },
+        200,
+      );
+    }
+
+    if (action === "resetClosingMonthly") {
+      if (!isAdmin) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_ADMIN",
+              message: "管理者権限がありません",
+            },
+          },
+          403,
+        );
+      }
+
+      var monthTargetEmail = normalizeEmail_(body.email || userEmail);
+      var monthKey = body.monthKey ? String(body.monthKey) : formatTokyoMonthKey_(new Date());
+      var resetMonthly = resetClosingMonthly_(monthTargetEmail, monthKey, userEmail, new Date());
+      appendClosingAudit_("resetClosingMonthly", userEmail, "ok", monthTargetEmail + ":" + monthKey);
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            closing: resetMonthly,
+          },
+        },
+        200,
+      );
+    }
+
     if (action !== "updateTalk") {
       return jsonResponse_(
         {
@@ -308,7 +587,7 @@ function doPost(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "updateTalk / upsertEditorPermission / deleteEditorPermission をサポートしています",
+              "updateTalk / upsertEditorPermission / deleteEditorPermission / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
           },
         },
         400,
@@ -826,6 +1105,440 @@ function appendAudit_(action, talkId, actorEmail, result, detail) {
   sheet.appendRow([now, action, talkId, actorEmail, result, detail]);
 }
 
+function getClosingDashboardByEmail_(email, dayKey, monthKey) {
+  var normalizedEmail = normalizeEmail_(email);
+  var now = new Date();
+  var targetDayKey = normalizeDayKeyValue_(dayKey, now);
+  var targetMonthKey = normalizeMonthKeyValue_(monthKey, now);
+
+  var closing = getOrCreateClosingRow_(normalizedEmail, now, normalizedEmail);
+  normalizeClosingPeriod_(closing, targetDayKey, targetMonthKey, now, normalizedEmail);
+
+  return buildClosingSnapshot_(closing);
+}
+
+function recordClosing_(email, now) {
+  var normalizedEmail = normalizeEmail_(email);
+  var dayKey = formatTokyoDayKey_(now);
+  var monthKey = formatTokyoMonthKey_(now);
+  var nowIso = toIsoString_(now);
+  var nowText = formatTokyoDateTime_(now);
+
+  var closing = getOrCreateClosingRow_(normalizedEmail, now, normalizedEmail);
+  normalizeClosingPeriod_(closing, dayKey, monthKey, now, normalizedEmail);
+
+  closing.row[closing.idx.today_closing_count] = parseNumber_(
+    closing.row[closing.idx.today_closing_count],
+    0,
+  ) + 1;
+  closing.row[closing.idx.monthly_closing_count] = parseNumber_(
+    closing.row[closing.idx.monthly_closing_count],
+    0,
+  ) + 1;
+  closing.row[closing.idx.last_closing_at] = nowIso;
+  closing.row[closing.idx.updated_at] = nowText;
+  closing.row[closing.idx.updated_by] = normalizedEmail;
+
+  writeClosingRow_(closing, closing.row);
+
+  return buildClosingSnapshot_(closing);
+}
+
+function upsertClosingStats_(email, body, now) {
+  var normalizedEmail = normalizeEmail_(email);
+  var dayKey = normalizeDayKeyValue_(body.dayKey, now);
+  var monthKey = normalizeMonthKeyValue_(body.monthKey, now);
+  var mode = body.mode ? String(body.mode).toLowerCase() : "set";
+
+  var closing = getOrCreateClosingRow_(normalizedEmail, now, normalizedEmail);
+  normalizeClosingPeriod_(closing, dayKey, monthKey, now, normalizedEmail);
+
+  var currentPt = parseNumber_(closing.row[closing.idx.today_acquired_pt], 0);
+  var currentDialog = parseNumber_(closing.row[closing.idx.today_dialog_count], 0);
+
+  var nextPt;
+  var nextDialog;
+
+  if (mode === "delta") {
+    nextPt = currentPt + parseNumber_(body.deltaAcquiredPt, 0);
+    nextDialog = currentDialog + parseNumber_(body.deltaDialogCount, 0);
+  } else {
+    var ptInput = body.todayAcquiredPt;
+    if (ptInput === undefined || ptInput === null) {
+      ptInput = body.acquiredPt;
+    }
+
+    var dialogInput = body.todayDialogCount;
+    if (dialogInput === undefined || dialogInput === null) {
+      dialogInput = body.dialogCount;
+    }
+
+    nextPt = ptInput === undefined || ptInput === null ? currentPt : parseNumber_(ptInput, currentPt);
+    nextDialog =
+      dialogInput === undefined || dialogInput === null
+        ? currentDialog
+        : parseNumber_(dialogInput, currentDialog);
+  }
+
+  if (nextPt < 0) {
+    nextPt = 0;
+  }
+  if (nextDialog < 0) {
+    nextDialog = 0;
+  }
+
+  closing.row[closing.idx.today_acquired_pt] = nextPt;
+  closing.row[closing.idx.today_dialog_count] = nextDialog;
+  closing.row[closing.idx.updated_at] = formatTokyoDateTime_(now);
+  closing.row[closing.idx.updated_by] = normalizedEmail;
+
+  writeClosingRow_(closing, closing.row);
+
+  return buildClosingSnapshot_(closing);
+}
+
+function resetClosingDaily_(email, dayKey, actorEmail, now) {
+  var normalizedEmail = normalizeEmail_(email);
+  var targetDayKey = normalizeDayKeyValue_(dayKey, now);
+  var targetMonthKey =
+    targetDayKey && targetDayKey.length >= 7
+      ? normalizeMonthKeyValue_(String(targetDayKey).slice(0, 7), now)
+      : formatTokyoMonthKey_(now);
+
+  var closing = getOrCreateClosingRow_(normalizedEmail, now, actorEmail);
+  normalizeClosingPeriod_(closing, targetDayKey, targetMonthKey, now, actorEmail);
+
+  closing.row[closing.idx.today_closing_count] = 0;
+  closing.row[closing.idx.today_acquired_pt] = 0;
+  closing.row[closing.idx.today_dialog_count] = 0;
+  closing.row[closing.idx.last_closing_at] = "";
+  closing.row[closing.idx.updated_at] = formatTokyoDateTime_(now);
+  closing.row[closing.idx.updated_by] = normalizeEmail_(actorEmail);
+
+  writeClosingRow_(closing, closing.row);
+
+  return buildClosingSnapshot_(closing);
+}
+
+function resetClosingMonthly_(email, monthKey, actorEmail, now) {
+  var normalizedEmail = normalizeEmail_(email);
+  var targetMonthKey = normalizeMonthKeyValue_(monthKey, now);
+  var targetDayKey = formatTokyoDayKey_(now);
+
+  var closing = getOrCreateClosingRow_(normalizedEmail, now, actorEmail);
+  normalizeClosingPeriod_(closing, targetDayKey, targetMonthKey, now, actorEmail);
+
+  closing.row[closing.idx.monthly_closing_count] = 0;
+  closing.row[closing.idx.updated_at] = formatTokyoDateTime_(now);
+  closing.row[closing.idx.updated_by] = normalizeEmail_(actorEmail);
+
+  writeClosingRow_(closing, closing.row);
+
+  return {
+    monthKey: String(closing.row[closing.idx.month_key] || targetMonthKey),
+    monthlyClosingCount: parseNumber_(closing.row[closing.idx.monthly_closing_count], 0),
+  };
+}
+
+function listClosingInactivityAlerts_(thresholdMinutes, now) {
+  var minutes = parseNumber_(thresholdMinutes, 15);
+  var thresholdMs = minutes * 60 * 1000;
+  var current = now || new Date();
+  var nowMs = current.getTime();
+  var dayKey = formatTokyoDayKey_(current);
+
+  var sheet = getSheet_(prop_("CLOSING_SHEET", "Closing"));
+  ensureClosingColumns_(sheet);
+  var values = sheet.getDataRange().getValues();
+
+  if (values.length <= 1) {
+    return [];
+  }
+
+  var idx = indexMap_(values[0]);
+  var alerts = [];
+
+  for (var i = 1; i < values.length; i += 1) {
+    var row = values[i];
+    var rowEmail = normalizeEmail_(row[idx.email]);
+    var rowDayKey = normalizeDayKeyValue_(row[idx.day_key], current);
+    var lastClosingAt = row[idx.last_closing_at] ? String(row[idx.last_closing_at]) : "";
+
+    if (!rowEmail || rowDayKey !== dayKey || !lastClosingAt) {
+      continue;
+    }
+
+    var lastMs = new Date(lastClosingAt).getTime();
+    if (!Number.isFinite(lastMs)) {
+      continue;
+    }
+
+    var diffMs = nowMs - lastMs;
+    if (diffMs < thresholdMs) {
+      continue;
+    }
+
+    alerts.push({
+      userEmail: rowEmail,
+      minutesWithoutClosing: Math.floor(diffMs / 60000),
+      lastClosingAt: lastClosingAt,
+    });
+  }
+
+  alerts.sort(function (a, b) {
+    return b.minutesWithoutClosing - a.minutesWithoutClosing;
+  });
+
+  return alerts;
+}
+
+function getOrCreateClosingRow_(email, now, actorEmail) {
+  var sheet = getSheet_(prop_("CLOSING_SHEET", "Closing"));
+  ensureClosingColumns_(sheet);
+
+  var values = sheet.getDataRange().getValues();
+  var idx = indexMap_(values[0]);
+  var rowNumber = -1;
+
+  for (var i = 1; i < values.length; i += 1) {
+    var rowEmail = normalizeEmail_(values[i][idx.email]);
+    if (rowEmail === email) {
+      rowNumber = i + 1;
+      break;
+    }
+  }
+
+  if (rowNumber === -1) {
+    var row = new Array(values[0].length).fill("");
+    row[idx.email] = email;
+    row[idx.day_key] = formatTokyoDayKey_(now);
+    row[idx.month_key] = formatTokyoMonthKey_(now);
+    row[idx.today_closing_count] = 0;
+    row[idx.today_acquired_pt] = 0;
+    row[idx.today_dialog_count] = 0;
+    row[idx.monthly_closing_count] = 0;
+    row[idx.last_closing_at] = "";
+    row[idx.updated_at] = formatTokyoDateTime_(now);
+    row[idx.updated_by] = normalizeEmail_(actorEmail);
+
+    sheet.appendRow(row);
+
+    values = sheet.getDataRange().getValues();
+    idx = indexMap_(values[0]);
+    for (var j = 1; j < values.length; j += 1) {
+      var appendedRowEmail = normalizeEmail_(values[j][idx.email]);
+      if (appendedRowEmail === email) {
+        rowNumber = j + 1;
+        break;
+      }
+    }
+  }
+
+  if (rowNumber === -1) {
+    throw new Error("Closing 行の作成に失敗しました: " + email);
+  }
+
+  return {
+    sheet: sheet,
+    idx: idx,
+    rowNumber: rowNumber,
+    row: values[rowNumber - 1],
+  };
+}
+
+function normalizeClosingPeriod_(closing, targetDayKey, targetMonthKey, now, actorEmail) {
+  var row = closing.row;
+  var idx = closing.idx;
+  var changed = false;
+
+  var currentMonthKey = normalizeMonthKeyValue_(row[idx.month_key], now);
+  var currentDayKey = normalizeDayKeyValue_(row[idx.day_key], now);
+  var hasMonthFormatDrift = String(row[idx.month_key] || "") !== currentMonthKey;
+  var hasDayFormatDrift = String(row[idx.day_key] || "") !== currentDayKey;
+
+  if (currentMonthKey !== targetMonthKey) {
+    row[idx.month_key] = targetMonthKey;
+    row[idx.monthly_closing_count] = 0;
+    changed = true;
+  } else if (hasMonthFormatDrift) {
+    row[idx.month_key] = currentMonthKey;
+    changed = true;
+  }
+
+  if (currentDayKey !== targetDayKey) {
+    row[idx.day_key] = targetDayKey;
+    row[idx.today_closing_count] = 0;
+    row[idx.today_acquired_pt] = 0;
+    row[idx.today_dialog_count] = 0;
+    row[idx.last_closing_at] = "";
+    changed = true;
+  } else if (hasDayFormatDrift) {
+    row[idx.day_key] = currentDayKey;
+    changed = true;
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  row[idx.updated_at] = formatTokyoDateTime_(now);
+  row[idx.updated_by] = normalizeEmail_(actorEmail);
+  writeClosingRow_(closing, row);
+}
+
+function writeClosingRow_(closing, row) {
+  closing.row = row;
+  if (typeof closing.idx.day_key === "number") {
+    closing.sheet.getRange(closing.rowNumber, closing.idx.day_key + 1, 1, 1).setNumberFormat("@");
+  }
+  if (typeof closing.idx.month_key === "number") {
+    closing.sheet.getRange(closing.rowNumber, closing.idx.month_key + 1, 1, 1).setNumberFormat("@");
+  }
+  closing.sheet.getRange(closing.rowNumber, 1, 1, row.length).setValues([row]);
+}
+
+function buildClosingSnapshot_(closing) {
+  var row = closing.row;
+  var idx = closing.idx;
+  var now = new Date();
+
+  return {
+    dayKey: normalizeDayKeyValue_(row[idx.day_key], now),
+    monthKey: normalizeMonthKeyValue_(row[idx.month_key], now),
+    todayClosingCount: parseNumber_(row[idx.today_closing_count], 0),
+    todayAcquiredPt: parseNumber_(row[idx.today_acquired_pt], 0),
+    todayDialogCount: parseNumber_(row[idx.today_dialog_count], 0),
+    monthlyClosingCount: parseNumber_(row[idx.monthly_closing_count], 0),
+    lastClosingAt: row[idx.last_closing_at] ? String(row[idx.last_closing_at]) : null,
+  };
+}
+
+function ensureClosingColumns_(sheet) {
+  var values = sheet.getDataRange().getValues();
+  var header = values.length > 0 ? values[0] : [];
+
+  if (header.length === 1 && String(header[0] || "").trim() === "") {
+    header = [];
+  }
+
+  var required = [
+    "email",
+    "day_key",
+    "month_key",
+    "today_closing_count",
+    "today_acquired_pt",
+    "today_dialog_count",
+    "monthly_closing_count",
+    "last_closing_at",
+    "updated_at",
+    "updated_by",
+  ];
+
+  var changed = false;
+  for (var i = 0; i < required.length; i += 1) {
+    if (header.indexOf(required[i]) === -1) {
+      header.push(required[i]);
+      changed = true;
+    }
+  }
+
+  if (changed || values.length === 0) {
+    sheet.getRange(1, 1, 1, header.length).setValues([header]);
+  }
+}
+
+function appendClosingAudit_(action, actorEmail, result, detail) {
+  try {
+    var sheet = getSheet_(prop_("CLOSING_AUDIT_SHEET", "ClosingAudit"));
+    var now = formatTokyoDateTime_(new Date());
+    sheet.appendRow([now, action, normalizeEmail_(actorEmail), result, detail]);
+  } catch (err) {
+    // Audit failure must not break API responses.
+  }
+}
+
+function parseNumber_(value, fallback) {
+  var base = typeof fallback === "number" ? fallback : 0;
+  var parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : base;
+}
+
+function pad2_(value) {
+  return String(value || "").padStart(2, "0");
+}
+
+function normalizeDayKeyValue_(value, fallbackDate) {
+  var baseDate = fallbackDate || new Date();
+
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return Utilities.formatDate(value, "Asia/Tokyo", "yyyy-MM-dd");
+  }
+
+  var raw = String(value || "").trim();
+  if (!raw) {
+    return formatTokyoDayKey_(baseDate);
+  }
+
+  var directMatch = raw.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (directMatch) {
+    return directMatch[1] + "-" + pad2_(directMatch[2]) + "-" + pad2_(directMatch[3]);
+  }
+
+  var parsed = new Date(raw);
+  if (Number.isFinite(parsed.getTime())) {
+    return Utilities.formatDate(parsed, "Asia/Tokyo", "yyyy-MM-dd");
+  }
+
+  return raw;
+}
+
+function normalizeMonthKeyValue_(value, fallbackDate) {
+  var baseDate = fallbackDate || new Date();
+
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return Utilities.formatDate(value, "Asia/Tokyo", "yyyy-MM");
+  }
+
+  var raw = String(value || "").trim();
+  if (!raw) {
+    return formatTokyoMonthKey_(baseDate);
+  }
+
+  var directMatch = raw.match(/^(\d{4})[\/-](\d{1,2})(?:[\/-](\d{1,2}))?/);
+  if (directMatch) {
+    return directMatch[1] + "-" + pad2_(directMatch[2]);
+  }
+
+  var parsed = new Date(raw);
+  if (Number.isFinite(parsed.getTime())) {
+    return Utilities.formatDate(parsed, "Asia/Tokyo", "yyyy-MM");
+  }
+
+  return raw;
+}
+
+function toTokyoDate_(date) {
+  var source = date || new Date();
+  var text = Utilities.formatDate(source, "Asia/Tokyo", "yyyy-MM-dd'T'HH:mm:ss");
+  return new Date(text + "+09:00");
+}
+
+function toIsoString_(date) {
+  return toTokyoDate_(date).toISOString();
+}
+
+function formatTokyoDateTime_(date) {
+  return Utilities.formatDate(toTokyoDate_(date), "Asia/Tokyo", "yyyy-MM-dd HH:mm:ss");
+}
+
+function formatTokyoDayKey_(date) {
+  return Utilities.formatDate(toTokyoDate_(date), "Asia/Tokyo", "yyyy-MM-dd");
+}
+
+function formatTokyoMonthKey_(date) {
+  return Utilities.formatDate(toTokyoDate_(date), "Asia/Tokyo", "yyyy-MM");
+}
+
 function isDomainAllowed_(email) {
   return getDomainAllowanceDebug_(email).allowed;
 }
@@ -889,8 +1602,16 @@ function prop_(key, fallback) {
 
 function getSheet_(sheetName) {
   const spreadsheet = SpreadsheetApp.openById(prop_("SPREADSHEET_ID", ""));
-  const sheet = spreadsheet.getSheetByName(sheetName);
+  var sheet = spreadsheet.getSheetByName(sheetName);
   if (!sheet) {
+    var closingSheetName = prop_("CLOSING_SHEET", "Closing");
+    var closingAuditSheetName = prop_("CLOSING_AUDIT_SHEET", "ClosingAudit");
+
+    if (sheetName === closingSheetName || sheetName === closingAuditSheetName) {
+      sheet = spreadsheet.insertSheet(sheetName);
+      return sheet;
+    }
+
     throw new Error("シートが見つかりません: " + sheetName);
   }
   return sheet;

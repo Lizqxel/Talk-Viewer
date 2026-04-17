@@ -1,4 +1,12 @@
 ﻿import {
+  type ClosingDashboardSnapshot,
+  type ClosingInactivityAlert,
+  createInitialClosingSnapshot,
+  formatDayKey,
+  formatMonthKey,
+  normalizeClosingSnapshotByDate,
+} from "@/lib/closing-metrics";
+import {
   type Announcement,
   type DailyHighlight,
   type FeaturedItem,
@@ -66,6 +74,10 @@ export interface TalkUpdateResult {
   talkId: string;
   revision?: number;
   transport: "fetch" | "no-cors";
+}
+
+export interface RecordClosingResult {
+  snapshot: ClosingDashboardSnapshot;
 }
 
 type ApiEnvelope = {
@@ -490,10 +502,24 @@ function assertEnvelopeOk(raw: unknown, fallbackMessage: string) {
 
   const envelope = raw as Record<string, unknown>;
   if ("ok" in envelope && envelope.ok === false) {
+    const code = toCode(raw, "API_ENVELOPE_ERROR");
+    const message = toMessage(raw, fallbackMessage);
+
+    if (
+      code === "INVALID_ACTION" &&
+      (message.includes("closingDashboard") || message.includes("closingInactivityAlerts"))
+    ) {
+      throw new TalkPortalApiError(
+        "NEXT_PUBLIC_TALK_API_URL が closing専用APIを指しています。bootstrap/authorize/listEditorPermissions を実装した Talk API の /exec URL を設定してください。",
+        500,
+        "MISCONFIGURED_TALK_API_URL",
+      );
+    }
+
     throw new TalkPortalApiError(
-      toMessage(raw, fallbackMessage),
+      message,
       403,
-      toCode(raw, "API_ENVELOPE_ERROR"),
+      code,
     );
   }
 }
@@ -1190,6 +1216,537 @@ export async function deleteScriptEditorPermission(
 
     return { email };
   }
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+function toRecordArray(value: unknown): LooseRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => asRecord(item))
+    .filter((item): item is LooseRecord => Boolean(item));
+}
+
+function resolveClosingSnapshot(raw: unknown, now: Date = new Date()): ClosingDashboardSnapshot {
+  const fallback = createInitialClosingSnapshot(now);
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return fallback;
+  }
+
+  const payloadCandidate = envelope.data && typeof envelope.data === "object"
+    ? asRecord(envelope.data)
+    : envelope;
+
+  if (!payloadCandidate) {
+    return fallback;
+  }
+
+  const source =
+    asRecord(
+      pickFirstValue(payloadCandidate, [
+        "closing",
+        "closingMetrics",
+        "closingDashboard",
+        "dailyClosing",
+      ]),
+    ) ?? payloadCandidate;
+
+  const month = String(
+    pickFirstValue(source, ["monthKey", "month_key", "targetMonth", "month"]) ??
+      formatMonthKey(now),
+  );
+  const day = String(
+    pickFirstValue(source, ["dayKey", "day_key", "targetDay", "day", "date"]) ??
+      formatDayKey(now),
+  );
+
+  const snapshot: ClosingDashboardSnapshot = {
+    dayKey: day,
+    monthKey: month,
+    todayClosingCount: toSafeNumber(
+      pickFirstValue(source, ["todayClosingCount", "today_count", "closingCount", "closing_count"]),
+      0,
+    ),
+    todayAcquiredPt: toSafeNumber(
+      pickFirstValue(source, ["todayAcquiredPt", "today_pt", "acquiredPt", "pt"]),
+      0,
+    ),
+    todayDialogCount: toSafeNumber(
+      pickFirstValue(source, ["todayDialogCount", "today_dialog_count", "dialogCount", "dialog_count"]),
+      0,
+    ),
+    monthlyClosingCount: toSafeNumber(
+      pickFirstValue(source, ["monthlyClosingCount", "monthly_count", "monthClosingCount", "month_count"]),
+      0,
+    ),
+    lastClosingAt:
+      (pickFirstValue(source, ["lastClosingAt", "last_closing_at", "lastClosingTime"]) as string | undefined) ??
+      null,
+  };
+
+  return normalizeClosingSnapshotByDate(snapshot, now);
+}
+
+function resolveClosingAlerts(raw: unknown): ClosingInactivityAlert[] {
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return [];
+  }
+
+  const payloadCandidate = envelope.data && typeof envelope.data === "object"
+    ? asRecord(envelope.data)
+    : envelope;
+
+  if (!payloadCandidate) {
+    return [];
+  }
+
+  const arrayRaw = pickFirstValue(payloadCandidate, [
+    "alerts",
+    "closingAlerts",
+    "inactivityAlerts",
+    "items",
+    "rows",
+    "list",
+  ]);
+
+  return toRecordArray(arrayRaw)
+    .map<ClosingInactivityAlert | null>((item) => {
+      const userEmail = String(
+        pickFirstValue(item, ["userEmail", "email", "operatorEmail", "operator_email", "mail"]) ?? "",
+      )
+        .trim()
+        .toLowerCase();
+      if (!userEmail) {
+        return null;
+      }
+
+      const userName = pickFirstValue(item, ["userName", "name", "operatorName"]);
+
+      return {
+        userEmail,
+        ...(userName ? { userName: String(userName) } : {}),
+        minutesWithoutClosing: toSafeNumber(
+          pickFirstValue(item, ["minutesWithoutClosing", "inactiveMinutes", "minutes", "elapsedMinutes"]),
+          0,
+        ),
+        lastClosingAt:
+          (pickFirstValue(item, ["lastClosingAt", "last_closing_at", "lastClosingTime"]) as string | undefined) ??
+          null,
+      };
+    })
+    .filter((item): item is ClosingInactivityAlert => item !== null);
+}
+
+function isInvalidActionError(error: unknown) {
+  return error instanceof TalkPortalApiError && error.code === "INVALID_ACTION";
+}
+
+function isRetryableClosingFetchError(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof TalkPortalApiError &&
+      (error.code === "NETWORK_ERROR" ||
+        error.code === "AUTH_REDIRECT" ||
+        error.code === "INVALID_JSON" ||
+        error.code === "HTTP_ERROR"))
+  );
+}
+
+async function fetchJsonpEnvelopeByAction(action: string, timeoutMs = 12000): Promise<unknown> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new TalkPortalApiError("JSONPはブラウザ環境でのみ利用できます", 500, "JSONP_UNAVAILABLE");
+  }
+
+  const callbackName = `talkPortalActionJsonp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const endpoint = new URL(API_URL);
+  endpoint.searchParams.set("action", action);
+  endpoint.searchParams.set("callback", callbackName);
+  endpoint.searchParams.set("_ts", String(Date.now()));
+
+  const globalScope = window as unknown as Record<string, unknown>;
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    let settled = false;
+
+    const cleanup = () => {
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      delete globalScope[callbackName];
+      window.clearTimeout(timerId);
+    };
+
+    const finishReject = (error: TalkPortalApiError) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const finishResolve = (raw: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(raw);
+    };
+
+    const timerId = window.setTimeout(() => {
+      finishReject(
+        new TalkPortalApiError(
+          "JSONPタイムアウト: Apps Scriptからの応答を受信できませんでした",
+          0,
+          "JSONP_TIMEOUT",
+        ),
+      );
+    }, timeoutMs);
+
+    globalScope[callbackName] = (raw: unknown) => {
+      finishResolve(raw);
+    };
+
+    script.async = true;
+    script.src = endpoint.toString();
+    script.onerror = () => {
+      finishReject(
+        new TalkPortalApiError(
+          "JSONP読み込みに失敗しました（認証リダイレクトの可能性）",
+          0,
+          "JSONP_LOAD_ERROR",
+        ),
+      );
+    };
+
+    document.head.appendChild(script);
+  });
+}
+
+async function fetchClosingDashboardViaJsonp(timeoutMs = 12000): Promise<ClosingDashboardSnapshot> {
+  const actions = ["closingDashboard", "getClosingDashboard", "getClosingMetrics"];
+  let lastError: unknown = null;
+
+  for (const action of actions) {
+    try {
+      const raw = await fetchJsonpEnvelopeByAction(action, timeoutMs);
+      assertEnvelopeOk(raw, "クロージングダッシュボードの取得に失敗しました");
+      return resolveClosingSnapshot(raw);
+    } catch (caught) {
+      lastError = caught;
+      if (isInvalidActionError(caught)) {
+        continue;
+      }
+      throw caught;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new TalkPortalApiError("クロージングダッシュボード取得に失敗しました", 500, "UNKNOWN_ERROR");
+}
+
+async function fetchClosingInactivityAlertsViaJsonp(timeoutMs = 12000): Promise<ClosingInactivityAlert[]> {
+  const actions = ["closingInactivityAlerts", "closingAlerts", "listClosingAlerts"];
+  let lastError: unknown = null;
+
+  for (const action of actions) {
+    try {
+      const raw = await fetchJsonpEnvelopeByAction(action, timeoutMs);
+      assertEnvelopeOk(raw, "クロージング未稼働アラートの取得に失敗しました");
+      return resolveClosingAlerts(raw);
+    } catch (caught) {
+      lastError = caught;
+      if (isInvalidActionError(caught)) {
+        continue;
+      }
+      throw caught;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new TalkPortalApiError("クロージング未稼働アラート取得に失敗しました", 500, "UNKNOWN_ERROR");
+}
+
+async function recordClosingViaJsonp(timeoutMs = 12000): Promise<RecordClosingResult> {
+  const actions = ["recordClosing", "incrementClosing", "addClosingCount"];
+  let lastError: unknown = null;
+
+  for (const action of actions) {
+    try {
+      const raw = await fetchJsonpEnvelopeByAction(action, timeoutMs);
+      assertEnvelopeOk(raw, "クロージング回数の更新に失敗しました");
+      return {
+        snapshot: resolveClosingSnapshot(raw),
+      };
+    } catch (caught) {
+      lastError = caught;
+      if (isInvalidActionError(caught)) {
+        continue;
+      }
+      throw caught;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new TalkPortalApiError("クロージング回数更新に失敗しました", 500, "UNKNOWN_ERROR");
+}
+
+export async function fetchClosingDashboardByApi(): Promise<ClosingDashboardSnapshot> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const actions = ["closingDashboard", "getClosingDashboard", "getClosingMetrics"];
+  let lastError: unknown = null;
+
+  for (const action of actions) {
+    try {
+      const endpoint = new URL(API_URL);
+      endpoint.searchParams.set("action", action);
+      endpoint.searchParams.set("_ts", String(Date.now()));
+
+      const response = await fetch(endpoint.toString(), {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      const json = await parseJsonResponse(response);
+      assertEnvelopeOk(json, "クロージングダッシュボードの取得に失敗しました");
+
+      if (!response.ok) {
+        throw new TalkPortalApiError(
+          toMessage(json, "クロージングダッシュボードの取得に失敗しました"),
+          response.status,
+          toCode(json, "HTTP_ERROR"),
+        );
+      }
+
+      return resolveClosingSnapshot(json);
+    } catch (caught) {
+      lastError = caught;
+      if (isInvalidActionError(caught)) {
+        continue;
+      }
+
+      if (isRetryableClosingFetchError(caught)) {
+        return fetchClosingDashboardViaJsonp();
+      }
+
+      throw caught;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new TalkPortalApiError("クロージングダッシュボード取得に失敗しました", 500, "UNKNOWN_ERROR");
+}
+
+export async function recordClosingByApi(): Promise<RecordClosingResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  // Prefer GET(JSONP) first because Apps Script POST may be blocked by browser/auth context.
+  try {
+    return await recordClosingViaJsonp();
+  } catch (caught) {
+    if (!(caught instanceof TalkPortalApiError)) {
+      throw caught;
+    }
+
+    const canFallbackToPost =
+      caught.code === "JSONP_TIMEOUT" ||
+      caught.code === "JSONP_LOAD_ERROR" ||
+      caught.code === "JSONP_UNAVAILABLE" ||
+      caught.code === "INVALID_ACTION";
+
+    if (!canFallbackToPost) {
+      throw caught;
+    }
+  }
+
+  const actions = ["recordClosing", "incrementClosing", "addClosingCount"];
+  let lastError: unknown = null;
+
+  for (const action of actions) {
+    const endpoint = new URL(API_URL);
+    endpoint.searchParams.set("_ts", String(Date.now()));
+    const body = JSON.stringify({ action });
+
+    try {
+      const response = await fetch(endpoint.toString(), {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+          Accept: "application/json",
+        },
+        body,
+      });
+
+      const json = await parseJsonResponse(response);
+      assertEnvelopeOk(json, "クロージング回数の更新に失敗しました");
+
+      if (!response.ok) {
+        throw new TalkPortalApiError(
+          toMessage(json, "クロージング回数の更新に失敗しました"),
+          response.status,
+          toCode(json, "HTTP_ERROR"),
+        );
+      }
+
+      return {
+        snapshot: resolveClosingSnapshot(json),
+      };
+    } catch (caught) {
+      lastError = caught;
+      if (isInvalidActionError(caught)) {
+        continue;
+      }
+
+      const canRetryWithNoCors =
+        caught instanceof TypeError ||
+        (caught instanceof TalkPortalApiError &&
+          (caught.code === "NETWORK_ERROR" ||
+            caught.code === "AUTH_REDIRECT" ||
+            caught.code === "INVALID_JSON" ||
+            caught.code === "HTTP_ERROR"));
+
+      if (!canRetryWithNoCors) {
+        throw caught;
+      }
+
+      try {
+        await fetch(endpoint.toString(), {
+          method: "POST",
+          mode: "no-cors",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "text/plain;charset=UTF-8",
+          },
+          body,
+        });
+      } catch {
+        throw new TalkPortalApiError(
+          "クロージング記録リクエストを送信できませんでした",
+          0,
+          "POST_NETWORK_ERROR",
+        );
+      }
+
+      const verification = await fetchClosingDashboardByApi();
+      return {
+        snapshot: verification,
+      };
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new TalkPortalApiError("クロージング回数更新に失敗しました", 500, "UNKNOWN_ERROR");
+}
+
+export async function fetchClosingInactivityAlertsByApi(): Promise<ClosingInactivityAlert[]> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const actions = ["closingInactivityAlerts", "closingAlerts", "listClosingAlerts"];
+  let lastError: unknown = null;
+
+  for (const action of actions) {
+    try {
+      const endpoint = new URL(API_URL);
+      endpoint.searchParams.set("action", action);
+      endpoint.searchParams.set("_ts", String(Date.now()));
+
+      const response = await fetch(endpoint.toString(), {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      const json = await parseJsonResponse(response);
+      assertEnvelopeOk(json, "クロージング未稼働アラートの取得に失敗しました");
+
+      if (!response.ok) {
+        throw new TalkPortalApiError(
+          toMessage(json, "クロージング未稼働アラートの取得に失敗しました"),
+          response.status,
+          toCode(json, "HTTP_ERROR"),
+        );
+      }
+
+      return resolveClosingAlerts(json);
+    } catch (caught) {
+      lastError = caught;
+      if (isInvalidActionError(caught)) {
+        continue;
+      }
+
+      if (isRetryableClosingFetchError(caught)) {
+        return fetchClosingInactivityAlertsViaJsonp();
+      }
+
+      throw caught;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new TalkPortalApiError("クロージング未稼働アラート取得に失敗しました", 500, "UNKNOWN_ERROR");
 }
 
 export async function getMockBootstrapPayload(): Promise<TalkBootstrapPayload> {
