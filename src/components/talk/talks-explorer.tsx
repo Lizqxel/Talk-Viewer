@@ -6,6 +6,8 @@ import { type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
+  FilePenLine,
+  FilePlus2,
   LayoutGrid,
   List,
   Search,
@@ -25,6 +27,8 @@ interface TalksExplorerProps {
   tags: string[];
   productLabels: Record<TalkProduct, string>;
   sceneLabels: Record<TalkScene, string>;
+  canCreateTalk: boolean;
+  canEdit: boolean;
 }
 
 type ViewMode = "card" | "list";
@@ -37,6 +41,8 @@ export function TalksExplorer({
   tags,
   productLabels,
   sceneLabels,
+  canCreateTalk,
+  canEdit,
 }: TalksExplorerProps) {
   const showFilters = false;
   const [query, setQuery] = useState("");
@@ -124,9 +130,19 @@ export function TalksExplorer({
 
   return (
     <div className="space-y-5">
-      <section className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">トーク一覧</h1>
-        <p className="text-sm text-muted-foreground">用途ごとにトークを一覧で確認できます。</p>
+      <section className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">トーク一覧</h1>
+          <p className="text-sm text-muted-foreground">用途ごとにトークを一覧で確認できます。</p>
+        </div>
+        {canCreateTalk ? (
+          <Button asChild>
+            <Link href="/talks/new">
+              <FilePlus2 className="size-4" aria-hidden="true" />
+              新スクリプト導入
+            </Link>
+          </Button>
+        ) : null}
       </section>
 
       <section className="rounded-xl border bg-card p-4 md:p-5">
@@ -204,7 +220,7 @@ export function TalksExplorer({
                       onClick={() =>
                         toggleArrayItem(selectedProducts, product, setSelectedProducts)
                       }
-                      label={productLabels[product]}
+                      label={productLabels[product] ?? product}
                     />
                   ))}
                 </FilterBlock>
@@ -215,7 +231,7 @@ export function TalksExplorer({
                       key={scene}
                       selected={selectedScenes.includes(scene)}
                       onClick={() => toggleArrayItem(selectedScenes, scene, setSelectedScenes)}
-                      label={sceneLabels[scene]}
+                      label={sceneLabels[scene] ?? scene}
                     />
                   ))}
                 </FilterBlock>
@@ -283,8 +299,9 @@ export function TalksExplorer({
                 >
                   <TalkCard
                     talk={talk}
-                    productLabel={productLabels[talk.product]}
-                    sceneLabel={sceneLabels[talk.scene]}
+                    productLabel={productLabels[talk.product] ?? talk.product}
+                    sceneLabel={sceneLabels[talk.scene] ?? talk.scene}
+                    canEdit={canEdit}
                   />
                 </motion.div>
               ))}
@@ -301,8 +318,9 @@ export function TalksExplorer({
                 >
                   <TalkListItem
                     talk={talk}
-                    productLabel={productLabels[talk.product]}
-                    sceneLabel={sceneLabels[talk.scene]}
+                    productLabel={productLabels[talk.product] ?? talk.product}
+                    sceneLabel={sceneLabels[talk.scene] ?? talk.scene}
+                    canEdit={canEdit}
                   />
                 </motion.div>
               ))}
@@ -351,10 +369,12 @@ function TalkCard({
   talk,
   productLabel,
   sceneLabel,
+  canEdit,
 }: {
   talk: Talk;
   productLabel: string;
   sceneLabel: string;
+  canEdit: boolean;
 }) {
   return (
     <Card className="brand-card border-border/80">
@@ -376,15 +396,28 @@ function TalkCard({
             </Badge>
           ))}
         </div>
-        <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-          <Link
-          href={`/talks/${talk.id}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
-          >
-          詳細を見る
-          <ArrowRight className="size-4" aria-hidden="true" />
-          </Link>
-        </motion.span>
+        <div className="flex flex-wrap items-center gap-3">
+          <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+            <Link
+              href={buildTalkDetailHref(talk.id)}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+            >
+              詳細を見る
+              <ArrowRight className="size-4" aria-hidden="true" />
+            </Link>
+          </motion.span>
+          {canEdit ? (
+            <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+              <Link
+                href={buildTalkEditorHref(talk.id)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+              >
+                編集
+                <FilePenLine className="size-4" aria-hidden="true" />
+              </Link>
+            </motion.span>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );
@@ -394,10 +427,12 @@ function TalkListItem({
   talk,
   productLabel,
   sceneLabel,
+  canEdit,
 }: {
   talk: Talk;
   productLabel: string;
   sceneLabel: string;
+  canEdit: boolean;
 }) {
   return (
     <Card className="brand-card border-border/80">
@@ -414,18 +449,39 @@ function TalkListItem({
           </div>
           <div className="flex flex-col items-start gap-2 md:items-end">
             <span className="text-xs text-muted-foreground">更新: {talk.updatedAt}</span>
-            <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-              <Link
-              href={`/talks/${talk.id}`}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
-              >
-              詳細を見る
-              <ArrowRight className="size-4" aria-hidden="true" />
-              </Link>
-            </motion.span>
+            <div className="flex flex-wrap items-center gap-3">
+              <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+                <Link
+                  href={buildTalkDetailHref(talk.id)}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+                >
+                  詳細を見る
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Link>
+              </motion.span>
+              {canEdit ? (
+                <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+                  <Link
+                    href={buildTalkEditorHref(talk.id)}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80"
+                  >
+                    編集
+                    <FilePenLine className="size-4" aria-hidden="true" />
+                  </Link>
+                </motion.span>
+              ) : null}
+            </div>
           </div>
         </div>
       </CardContent>
     </Card>
   );
+}
+
+function buildTalkEditorHref(talkId: string) {
+  return `/talks/editor?talkId=${encodeURIComponent(talkId)}`;
+}
+
+function buildTalkDetailHref(talkId: string) {
+  return `/talks/detail?talkId=${encodeURIComponent(talkId)}`;
 }

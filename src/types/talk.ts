@@ -1,6 +1,8 @@
 export type TalkDifficulty = "初級" | "中級" | "上級";
 
-export type TalkProduct = "hikari" | "denki" | "wifi" | "oa";
+export type KnownTalkProduct = "hikari" | "denki" | "wifi" | "oa";
+
+export type TalkProduct = KnownTalkProduct | (string & {});
 
 export type TalkScene =
   | "kojin"

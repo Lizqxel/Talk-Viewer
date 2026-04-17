@@ -2,7 +2,9 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { ChevronLeft, FilePenLine, FolderTree, UserRound } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { ChevronLeft, FilePenLine, FolderTree, Loader2, Trash2, TriangleAlert, UserRound } from "lucide-react";
 
 import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
@@ -12,6 +14,7 @@ import { TalkTreeView } from "@/components/talk/talk-tree-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { deleteTalkByApi } from "@/lib/talk-portal-api";
 
 const ClosingManagerPanel = dynamic(
   () => import("@/components/talk/closing-manager-panel").then((module) => module.ClosingManagerPanel),
@@ -23,7 +26,10 @@ interface TalkDetailPageClientProps {
 }
 
 export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
+  const router = useRouter();
   const { data, error, isLoading, isFallback, reload } = useTalkBootstrapContext();
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (isLoading || (!data && error) || !data) {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
@@ -44,7 +50,33 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
     );
   }
 
+  const handleDelete = async () => {
+    if (!data.user?.canEdit || isDeleting) {
+      return;
+    }
+
+    const confirmed = window.confirm(`「${talk.title}」を削除しますか？\nこの操作は元に戻せません。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteError(null);
+    setIsDeleting(true);
+
+    try {
+      await deleteTalkByApi(talk.id);
+      await reload();
+      router.replace("/talks");
+    } catch (caught) {
+      setDeleteError(String(caught));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const isScriptFlowTalk = talk.id === "hikari-kojin-standard" || talk.id === "hikari-hojin-standard";
+  const productLabel = data.productLabels[talk.product] ?? talk.product;
+  const sceneLabel = data.sceneLabels[talk.scene] ?? talk.scene;
 
   return (
     <div className="space-y-6">
@@ -61,22 +93,34 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
         <div className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{data.productLabels[talk.product]}</Badge>
-              <Badge variant="outline">{data.sceneLabels[talk.scene]}</Badge>
+              <Badge variant="secondary">{productLabel}</Badge>
+              <Badge variant="outline">{sceneLabel}</Badge>
               <Badge variant="outline">{talk.difficulty}</Badge>
               <span className="text-xs text-muted-foreground">最終更新: {talk.updatedAt}</span>
             </div>
             {data.user?.canEdit ? (
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/talks/${talk.id}/edit`}>
-                  <FilePenLine className="size-4" aria-hidden="true" />
-                  編集
-                </Link>
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/talks/editor?talkId=${encodeURIComponent(talk.id)}`}>
+                    <FilePenLine className="size-4" aria-hidden="true" />
+                    編集
+                  </Link>
+                </Button>
+                <Button type="button" variant="destructive" size="sm" onClick={() => void handleDelete()} disabled={isDeleting}>
+                  {isDeleting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
+                  削除
+                </Button>
+              </div>
             ) : null}
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{talk.title}</h1>
           <p className="max-w-4xl text-sm leading-relaxed text-muted-foreground md:text-base">{talk.summary}</p>
+          {deleteError ? (
+            <p className="flex items-center gap-1.5 text-sm text-destructive">
+              <TriangleAlert className="size-4" aria-hidden="true" />
+              {deleteError}
+            </p>
+          ) : null}
         </div>
       </div>
 

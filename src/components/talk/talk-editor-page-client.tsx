@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageSquarePlus, Plus, Save, ShieldAlert, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageSquarePlus, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
@@ -11,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { deriveTalkSections } from "@/lib/talk-sections";
-import { updateTalkByApi } from "@/lib/talk-portal-api";
+import { deleteTalkByApi, updateTalkByApi } from "@/lib/talk-portal-api";
 import { type Talk, type TalkBranchGuide, type TalkNode } from "@/types/talk";
 
 interface TalkEditorPageClientProps {
@@ -179,6 +180,7 @@ function renderSectionId(sectionId: string) {
 }
 
 export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
+  const router = useRouter();
   const { data, error, isLoading, reload } = useTalkBootstrapContext();
 
   const [draftTalk, setDraftTalk] = useState<Talk | null>(null);
@@ -188,6 +190,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const talk = useMemo(() => data?.talks.find((item) => item.id === talkId) ?? null, [data, talkId]);
 
@@ -282,7 +285,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
         </CardHeader>
         <CardContent>
           <Button asChild variant="outline">
-            <Link href={`/talks/${talkId}`}>詳細ページへ戻る</Link>
+            <Link href="/talks">トーク一覧へ戻る</Link>
           </Button>
         </CardContent>
       </Card>
@@ -334,6 +337,31 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     }
   };
 
+  const handleDelete = async () => {
+    if (isDeleting) {
+      return;
+    }
+
+    const confirmed = window.confirm(`「${talk.title}」を削除しますか？\nこの操作は元に戻せません。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setSaveError(null);
+    setSaveMessage(null);
+
+    try {
+      await deleteTalkByApi(talk.id);
+      await reload();
+      router.replace("/talks");
+    } catch (caught) {
+      setSaveError(String(caught));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const currentGuides = selectedNode ? extractBranchGuides(selectedNode) : [];
   const currentPointBlocks = selectedNode?.pointBlocks ?? [];
 
@@ -341,11 +369,11 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     <div className="space-y-6">
       <div className="space-y-3">
         <Link
-          href={`/talks/${talkId}`}
+          href="/talks"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-4" aria-hidden="true" />
-          詳細ページへ戻る
+          トーク一覧へ戻る
         </Link>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -723,10 +751,14 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                 {isSaving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
                 保存
               </Button>
+              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={isDeleting || isSaving}>
+                {isDeleting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
+                削除
+              </Button>
               <Button
                 type="button"
                 variant="outline"
-                disabled={isSaving}
+                disabled={isSaving || isDeleting}
                 onClick={() => {
                   setDraftTalk(cloneTalk(talk));
                   setIsDirty(false);

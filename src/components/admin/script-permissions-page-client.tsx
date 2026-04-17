@@ -261,24 +261,6 @@ export function ScriptPermissionsPageClient() {
     void loadMemberClosings(closingTargets);
   }, [canManagePermissions, closingTargets, loadMemberClosings]);
 
-  if (isLoading || (!data && error) || !data) {
-    return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
-  }
-
-  if (!data.user?.isAdmin) {
-    return (
-      <Card className="border-border/80">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldAlert className="size-4 text-destructive" aria-hidden="true" />
-            管理者権限がありません
-          </CardTitle>
-          <CardDescription>このタブは admin ユーザーのみ表示されます。Editors シートで is_admin を TRUE に設定してください。</CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
   const emailConflict =
     normalizedFormEmail.length > 0 &&
     permissions.some((item) => item.email === normalizedFormEmail && item.email !== editingEmail);
@@ -352,6 +334,24 @@ export function ScriptPermissionsPageClient() {
     () => memberClosingRows.filter((item) => item.snapshot && !item.error).slice(0, 3),
     [memberClosingRows],
   );
+
+  if (isLoading || (!data && error) || !data) {
+    return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
+  }
+
+  if (!data.user?.isAdmin) {
+    return (
+      <Card className="border-border/80">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldAlert className="size-4 text-destructive" aria-hidden="true" />
+            管理者権限がありません
+          </CardTitle>
+          <CardDescription>このタブは admin ユーザーのみ表示されます。Editors シートで is_admin を TRUE に設定してください。</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

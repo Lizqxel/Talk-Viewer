@@ -21,6 +21,8 @@ export default function TalksPage() {
         tags={data.talkTags}
         productLabels={data.productLabels}
         sceneLabels={data.sceneLabels}
+        canCreateTalk={Boolean(data.user?.canEdit || data.user?.isAdmin)}
+        canEdit={Boolean(data.user?.canEdit)}
       />
     </div>
   );
