@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, ShieldCheck, Trash2, TriangleAlert, UserRoundPlus } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
+import { useClosingDashboardContext } from "@/components/shared/closing-dashboard-provider";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ function isValidEmail(email: string) {
 
 export function ScriptPermissionsPageClient() {
   const { data, error, isLoading, reload } = useTalkBootstrapContext();
+  const { adminAlerts } = useClosingDashboardContext();
 
   const [permissions, setPermissions] = useState<ScriptEditorPermission[]>([]);
   const [isFetching, setIsFetching] = useState(false);
@@ -204,6 +206,29 @@ export function ScriptPermissionsPageClient() {
 
   return (
     <div className="space-y-6">
+      {adminAlerts.length > 0 ? (
+        <Card className="border-destructive/35 bg-destructive/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-destructive">
+              <TriangleAlert className="size-4" aria-hidden="true" />
+              15分未稼働アラート
+            </CardTitle>
+            <CardDescription className="text-destructive/90">
+              クロージング回数の増加が止まっているAPです。フォローを検討してください。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1 text-sm text-destructive">
+              {adminAlerts.map((item) => (
+                <li key={item.userEmail}>
+                  {item.userName ? `${item.userName} (${item.userEmail})` : item.userEmail} : {item.minutesWithoutClosing.toFixed(0)}分
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="space-y-1">
         <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
           <ShieldCheck className="size-6 text-primary" aria-hidden="true" />
