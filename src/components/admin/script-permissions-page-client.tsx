@@ -11,11 +11,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  calculateClosingRate,
+  calculatePtPerClosing,
+  resolveClosingRank,
+  safeDivide,
+  type ClosingDashboardSnapshot,
+  type ClosingRank,
+} from "@/lib/closing-metrics";
+import {
   deleteScriptEditorPermission,
+  fetchClosingDashboardByApi,
   fetchScriptEditorPermissions,
   type ScriptEditorPermission,
   upsertScriptEditorPermission,
 } from "@/lib/talk-portal-api";
+import { cn } from "@/lib/utils";
 
 const defaultFormState = {
   email: "",
@@ -23,6 +33,81 @@ const defaultFormState = {
   isActive: true,
   isAdmin: false,
 };
+
+type MemberClosingState = {
+  snapshot: ClosingDashboardSnapshot | null;
+  error: string | null;
+};
+
+type MemberClosingRow = {
+  email: string;
+  canEdit: boolean;
+  isActive: boolean;
+  isAdmin: boolean;
+  isCurrentUser: boolean;
+  snapshot: ClosingDashboardSnapshot | null;
+  error: string | null;
+  todayAcquiredPt: number;
+  todayClosingCount: number;
+  todayDialogCount: number;
+  monthlyClosingCount: number;
+  ptPerClosing: number;
+  closingRate: number;
+  rank: ClosingRank;
+  lastClosingAt: string | null;
+};
+
+const pointFormatter = new Intl.NumberFormat("ja-JP", {
+  maximumFractionDigits: 1,
+});
+
+function formatPoint(value: number) {
+  return `${pointFormatter.format(value)}pt`;
+}
+
+function formatRate(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatLastClosingAt(value: string | null) {
+  if (!value) {
+    return "未記録";
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    return String(value);
+  }
+
+  return parsed.toLocaleString("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Tokyo",
+  });
+}
+
+function rankBadgeClassName(rank: ClosingRank) {
+  if (rank === "S") {
+    return "border-amber-500 bg-amber-500/90 text-amber-950";
+  }
+
+  if (rank === "A") {
+    return "border-emerald-600 bg-emerald-600 text-emerald-50";
+  }
+
+  if (rank === "B") {
+    return "border-sky-600 bg-sky-600 text-sky-50";
+  }
+
+  if (rank === "C") {
+    return "border-indigo-500 bg-indigo-500 text-indigo-50";
+  }
+
+  return "border-slate-500 bg-slate-500 text-slate-50";
+}
 
 function getFailureMessage(value: unknown) {
   if (value instanceof Error) {
@@ -55,9 +140,33 @@ export function ScriptPermissionsPageClient() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const [memberClosingMap, setMemberClosingMap] = useState<Record<string, MemberClosingState>>({});
+  const [isFetchingMemberClosings, setIsFetchingMemberClosings] = useState(false);
+  const [memberClosingsError, setMemberClosingsError] = useState<string | null>(null);
+
   const canManagePermissions = Boolean(data?.user?.isAdmin);
   const currentUserEmail = normalizeEmail(data?.user?.email ?? "");
   const normalizedFormEmail = useMemo(() => normalizeEmail(form.email), [form.email]);
+
+  const closingTargets = useMemo(() => {
+    const seenEmails = new Set<string>();
+    const targets: ScriptEditorPermission[] = [];
+
+    for (const item of permissions) {
+      const normalizedEmail = normalizeEmail(item.email);
+      if (!normalizedEmail || seenEmails.has(normalizedEmail)) {
+        continue;
+      }
+
+      seenEmails.add(normalizedEmail);
+      targets.push({
+        ...item,
+        email: normalizedEmail,
+      });
+    }
+
+    return targets;
+  }, [permissions]);
 
   const loadPermissions = useCallback(async () => {
     setIsFetching(true);
@@ -82,6 +191,76 @@ export function ScriptPermissionsPageClient() {
     void loadPermissions();
   }, [canManagePermissions, loadPermissions]);
 
+  const loadMemberClosings = useCallback(async (targets: ScriptEditorPermission[]) => {
+    const targetEmails = targets
+      .map((item) => normalizeEmail(item.email))
+      .filter((email, index, array) => Boolean(email) && array.indexOf(email) === index);
+
+    if (targetEmails.length === 0) {
+      setMemberClosingMap({});
+      setMemberClosingsError(null);
+      return;
+    }
+
+    setIsFetchingMemberClosings(true);
+    setMemberClosingsError(null);
+
+    try {
+      const resolved = await Promise.all(
+        targetEmails.map(async (email) => {
+          try {
+            const snapshot = await fetchClosingDashboardByApi({ email });
+            return {
+              email,
+              snapshot,
+              error: null as string | null,
+            };
+          } catch (caught) {
+            return {
+              email,
+              snapshot: null as ClosingDashboardSnapshot | null,
+              error: getFailureMessage(caught),
+            };
+          }
+        }),
+      );
+
+      const nextMap: Record<string, MemberClosingState> = {};
+      let failedCount = 0;
+
+      for (const item of resolved) {
+        nextMap[item.email] = {
+          snapshot: item.snapshot,
+          error: item.error,
+        };
+
+        if (item.error) {
+          failedCount += 1;
+        }
+      }
+
+      setMemberClosingMap(nextMap);
+
+      if (failedCount > 0) {
+        setMemberClosingsError(
+          `${failedCount}名のクロージング指標を取得できませんでした。認証状態と Apps Script の権限を確認してください。`,
+        );
+      } else {
+        setMemberClosingsError(null);
+      }
+    } finally {
+      setIsFetchingMemberClosings(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!canManagePermissions) {
+      return;
+    }
+
+    void loadMemberClosings(closingTargets);
+  }, [canManagePermissions, closingTargets, loadMemberClosings]);
+
   if (isLoading || (!data && error) || !data) {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
   }
@@ -103,6 +282,76 @@ export function ScriptPermissionsPageClient() {
   const emailConflict =
     normalizedFormEmail.length > 0 &&
     permissions.some((item) => item.email === normalizedFormEmail && item.email !== editingEmail);
+
+  const memberClosingRows = useMemo<MemberClosingRow[]>(() => {
+    return closingTargets
+      .map((target) => {
+        const normalizedEmail = normalizeEmail(target.email);
+        const state = memberClosingMap[normalizedEmail];
+        const snapshot = state?.snapshot ?? null;
+
+        const todayAcquiredPt = snapshot?.todayAcquiredPt ?? 0;
+        const todayClosingCount = snapshot?.todayClosingCount ?? 0;
+        const todayDialogCount = snapshot?.todayDialogCount ?? 0;
+        const monthlyClosingCount = snapshot?.monthlyClosingCount ?? 0;
+        const ptPerClosing = snapshot ? calculatePtPerClosing(snapshot) : 0;
+        const closingRate = snapshot ? calculateClosingRate(snapshot) : 0;
+
+        return {
+          email: normalizedEmail,
+          canEdit: target.canEdit,
+          isActive: target.isActive,
+          isAdmin: target.isAdmin,
+          isCurrentUser: normalizedEmail === currentUserEmail,
+          snapshot,
+          error: state?.error ?? null,
+          todayAcquiredPt,
+          todayClosingCount,
+          todayDialogCount,
+          monthlyClosingCount,
+          ptPerClosing,
+          closingRate,
+          rank: resolveClosingRank(ptPerClosing),
+          lastClosingAt: snapshot?.lastClosingAt ?? null,
+        };
+      })
+      .sort((a, b) => {
+        if (a.isActive !== b.isActive) {
+          return a.isActive ? -1 : 1;
+        }
+
+        if (b.todayAcquiredPt !== a.todayAcquiredPt) {
+          return b.todayAcquiredPt - a.todayAcquiredPt;
+        }
+
+        if (b.todayClosingCount !== a.todayClosingCount) {
+          return b.todayClosingCount - a.todayClosingCount;
+        }
+
+        return a.email.localeCompare(b.email);
+      });
+  }, [closingTargets, currentUserEmail, memberClosingMap]);
+
+  const closingOverview = useMemo(() => {
+    const loadedRows = memberClosingRows.filter((item) => item.snapshot && !item.error);
+
+    const totalAcquiredPt = loadedRows.reduce((sum, item) => sum + item.todayAcquiredPt, 0);
+    const totalTodayClosing = loadedRows.reduce((sum, item) => sum + item.todayClosingCount, 0);
+    const averagePtPerClosing = safeDivide(totalAcquiredPt, totalTodayClosing);
+
+    return {
+      totalMembers: memberClosingRows.length,
+      loadedMembers: loadedRows.length,
+      totalAcquiredPt,
+      totalTodayClosing,
+      averagePtPerClosing,
+    };
+  }, [memberClosingRows]);
+
+  const topPerformers = useMemo(
+    () => memberClosingRows.filter((item) => item.snapshot && !item.error).slice(0, 3),
+    [memberClosingRows],
+  );
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -237,6 +486,150 @@ export function ScriptPermissionsPageClient() {
         <p className="text-sm text-muted-foreground">admin ユーザーのみ、Editors シートの編集権限を付与・更新できます。</p>
         <p className="text-xs text-muted-foreground">実行ユーザー: {data.user.email ?? "unknown"}</p>
       </div>
+
+      <Card className="border-border/80 bg-gradient-to-br from-emerald-50/70 via-background to-sky-50/60">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">メンバー別クロージングポイント</CardTitle>
+              <CardDescription>
+                管理者向けに、各メンバーの本日獲得PT・クロージング数・単価を一覧表示します。
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void loadMemberClosings(closingTargets)}
+              disabled={isFetchingMemberClosings || isFetching}
+            >
+              {isFetchingMemberClosings ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <RefreshCw className="size-4" aria-hidden="true" />
+              )}
+              指標を再取得
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-border/70 bg-background/80 px-4 py-3 shadow-sm">
+              <p className="text-xs text-muted-foreground">対象メンバー</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight">{closingOverview.totalMembers}名</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/80 px-4 py-3 shadow-sm">
+              <p className="text-xs text-muted-foreground">本日クロージング合計</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight">{closingOverview.totalTodayClosing.toLocaleString("ja-JP")}回</p>
+              <p className="text-[11px] text-muted-foreground">
+                取得成功: {closingOverview.loadedMembers}/{closingOverview.totalMembers}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/80 px-4 py-3 shadow-sm">
+              <p className="text-xs text-muted-foreground">本日獲得PT合計</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight">{formatPoint(closingOverview.totalAcquiredPt)}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/80 px-4 py-3 shadow-sm">
+              <p className="text-xs text-muted-foreground">平均クロージング単価</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight">{closingOverview.averagePtPerClosing.toFixed(2)}</p>
+            </div>
+          </div>
+
+          {memberClosingsError ? (
+            <p className="flex items-center gap-1.5 text-sm text-destructive">
+              <TriangleAlert className="size-4" aria-hidden="true" />
+              {memberClosingsError}
+            </p>
+          ) : null}
+
+          {isFetchingMemberClosings ? (
+            <p className="text-xs text-muted-foreground">クロージング指標を取得しています...</p>
+          ) : null}
+
+          {topPerformers.length > 0 ? (
+            <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-2.5">
+              <p className="text-xs font-medium text-muted-foreground">本日の上位メンバー</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {topPerformers.map((item, index) => (
+                  <Badge key={item.email} variant="secondary" className="border border-border/60 bg-background px-2.5 py-1 text-xs">
+                    #{index + 1} {item.email} / {formatPoint(item.todayAcquiredPt)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+            {memberClosingRows.length === 0 ? (
+              <div className="col-span-full rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                表示対象メンバーがありません。Editors シートにユーザーを追加してください。
+              </div>
+            ) : (
+              memberClosingRows.map((item) => (
+                <article
+                  key={item.email}
+                  className={cn(
+                    "rounded-xl border border-border/70 bg-background/90 p-4 shadow-sm",
+                    item.isCurrentUser ? "border-primary/40 bg-primary/[0.06]" : null,
+                    !item.isActive ? "opacity-70" : null,
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 space-y-1">
+                      <p className="truncate text-sm font-semibold text-foreground">{item.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[item.isCurrentUser ? "あなた" : null, item.isAdmin ? "管理者" : item.canEdit ? "編集者" : "閲覧者", item.isActive ? "有効" : "無効"]
+                          .filter((value): value is string => Boolean(value))
+                          .join(" / ")}
+                      </p>
+                    </div>
+                    <Badge className={cn("border px-2 py-0.5 text-xs font-semibold", rankBadgeClassName(item.rank))}>
+                      {item.rank}
+                    </Badge>
+                  </div>
+
+                  {item.error ? (
+                    <p className="mt-3 text-xs text-destructive">{item.error}</p>
+                  ) : (
+                    <>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                          <p className="text-[11px] text-muted-foreground">本日獲得PT</p>
+                          <p className="mt-1 text-lg font-semibold tracking-tight">{formatPoint(item.todayAcquiredPt)}</p>
+                        </div>
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                          <p className="text-[11px] text-muted-foreground">本日クロージング</p>
+                          <p className="mt-1 text-lg font-semibold tracking-tight">{item.todayClosingCount.toLocaleString("ja-JP")}回</p>
+                        </div>
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                          <p className="text-[11px] text-muted-foreground">単価</p>
+                          <p className="mt-1 text-lg font-semibold tracking-tight">{item.ptPerClosing.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                          <p className="text-[11px] text-muted-foreground">全件率</p>
+                          <p className="mt-1 text-lg font-semibold tracking-tight">{formatRate(item.closingRate)}</p>
+                        </div>
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                          <p className="text-[11px] text-muted-foreground">対話件数</p>
+                          <p className="mt-1 text-lg font-semibold tracking-tight">{item.todayDialogCount.toLocaleString("ja-JP")}件</p>
+                        </div>
+                        <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+                          <p className="text-[11px] text-muted-foreground">月間累計</p>
+                          <p className="mt-1 text-lg font-semibold tracking-tight">{item.monthlyClosingCount.toLocaleString("ja-JP")}回</p>
+                        </div>
+                      </div>
+
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        最終クロージング: {formatLastClosingAt(item.lastClosingAt)}
+                      </p>
+                    </>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-border/80 bg-card">
         <CardHeader>

@@ -21,8 +21,10 @@ export function ClosingManagerPanel() {
     adminAlerts,
     isLoading,
     isRecording,
+    isRecordingPt,
     error,
     recordClosing,
+    recordAcquiredPt,
   } = useClosingDashboardContext();
 
   const hasAdminAlerts = data?.user?.isAdmin && adminAlerts.length > 0;
@@ -86,18 +88,34 @@ export function ClosingManagerPanel() {
           </div>
         </div>
 
-        <Button
-          type="button"
-          size="lg"
-          className="h-14 w-full text-base font-semibold md:hidden md:h-16 md:text-lg"
-          disabled={isRecording || !data?.user?.canEdit}
-          onClick={() => {
-            void recordClosing();
-          }}
-        >
-          {isRecording ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-          クロージングした
-        </Button>
+        <div className="grid gap-2 md:hidden sm:grid-cols-2">
+          <Button
+            type="button"
+            size="lg"
+            className="h-14 w-full text-base font-semibold md:h-16 md:text-lg"
+            disabled={isRecording || isRecordingPt || !data?.user?.canEdit}
+            onClick={() => {
+              void recordClosing();
+            }}
+          >
+            {isRecording ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+            クロージングした
+          </Button>
+
+          <Button
+            type="button"
+            size="lg"
+            variant="outline"
+            className="h-14 w-full text-base font-semibold md:h-16 md:text-lg"
+            disabled={isRecording || isRecordingPt || !data?.user?.canEdit}
+            onClick={() => {
+              void recordAcquiredPt(1);
+            }}
+          >
+            {isRecordingPt ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+            獲得した (+1pt)
+          </Button>
+        </div>
 
         {!data?.user?.canEdit ? (
           <p className="text-xs text-muted-foreground">

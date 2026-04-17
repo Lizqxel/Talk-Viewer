@@ -29,6 +29,7 @@ import {
   fetchClosingInactivityAlertsByApi,
   recordClosingByApi,
   TalkPortalApiError,
+  updateClosingStatsByApi,
 } from "@/lib/talk-portal-api";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 
@@ -46,8 +47,10 @@ type ClosingDashboardContextValue = {
   error: TalkPortalApiError | null;
   isLoading: boolean;
   isRecording: boolean;
+  isRecordingPt: boolean;
   reload: () => Promise<void>;
   recordClosing: () => Promise<void>;
+  recordAcquiredPt: (deltaPt?: number) => Promise<void>;
 };
 
 const ClosingDashboardContext = createContext<ClosingDashboardContextValue | null>(null);
@@ -132,6 +135,26 @@ function assertClosingPersisted(
   }
 }
 
+function assertPtPersisted(
+  before: ClosingDashboardSnapshot,
+  after: ClosingDashboardSnapshot,
+  expectedDelta: number,
+) {
+  if (before.dayKey !== after.dayKey) {
+    return;
+  }
+
+  const minimumExpected = before.todayAcquiredPt + expectedDelta;
+
+  if (after.todayAcquiredPt + Number.EPSILON < minimumExpected) {
+    throw new TalkPortalApiError(
+      "本日獲得PTが保存後に増えていません。Apps Script の Webアプリを最新コードで再デプロイし、NEXT_PUBLIC_TALK_API_URL をその /exec URL に更新してください。",
+      500,
+      "PT_WRITE_NOT_CONFIRMED",
+    );
+  }
+}
+
 export function ClosingDashboardProvider({ children }: ClosingDashboardProviderProps) {
   const { data } = useTalkBootstrapContext();
   const [snapshot, setSnapshot] = useState<ClosingDashboardSnapshot>(() => loadFallbackSnapshot(new Date()));
@@ -139,6 +162,7 @@ export function ClosingDashboardProvider({ children }: ClosingDashboardProviderP
   const [error, setError] = useState<TalkPortalApiError | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [isRecordingPt, setIsRecordingPt] = useState(false);
 
   const reload = useCallback(async () => {
     const nextSnapshot = await fetchClosingDashboardByApi();
@@ -275,6 +299,74 @@ export function ClosingDashboardProvider({ children }: ClosingDashboardProviderP
     }
   }, [data?.user?.canEdit, data?.user?.isAdmin, reload, reloadAdminAlerts, snapshot]);
 
+  const recordAcquiredPt = useCallback(async (deltaPt = 1) => {
+    if (!data?.user?.canEdit) {
+      setError(
+        new TalkPortalApiError(
+          "編集権限がありません。Editorsシートで can_edit=true / is_active=true を確認してください。",
+          403,
+          "FORBIDDEN_EDITOR",
+        ),
+      );
+      return;
+    }
+
+    const safeDelta = Number.isFinite(deltaPt) ? Math.max(0, deltaPt) : 0;
+    if (safeDelta <= 0) {
+      return;
+    }
+
+    setIsRecordingPt(true);
+
+    const beforeSnapshot = normalizeClosingSnapshotByDate(snapshot, new Date());
+    const optimisticSnapshot: ClosingDashboardSnapshot = {
+      ...beforeSnapshot,
+      todayAcquiredPt: beforeSnapshot.todayAcquiredPt + safeDelta,
+    };
+
+    setSnapshot(optimisticSnapshot);
+    saveFallbackSnapshot(optimisticSnapshot);
+    emitClosingMetricsUpdated(optimisticSnapshot);
+
+    try {
+      const result = await updateClosingStatsByApi({
+        mode: "delta",
+        deltaAcquiredPt: safeDelta,
+      });
+      const normalized = normalizeClosingSnapshotByDate(result.snapshot, new Date());
+      assertPtPersisted(beforeSnapshot, normalized, safeDelta);
+      setSnapshot(normalized);
+      saveFallbackSnapshot(normalized);
+      emitClosingMetricsUpdated(normalized);
+      setError(null);
+
+      if (data?.user?.isAdmin) {
+        await reloadAdminAlerts();
+      }
+    } catch (caught) {
+      const baseError = toApiError(caught);
+
+      if (isLocalFallbackEligible(baseError)) {
+        setError(
+          new TalkPortalApiError(
+            `${baseError.message}（通信要因のため、表示は一時的にローカル状態です）`,
+            baseError.status,
+            baseError.code,
+          ),
+        );
+      } else {
+        setError(baseError);
+        try {
+          await reload();
+        } catch {
+          // Keep current error when resync also fails.
+        }
+      }
+    } finally {
+      setIsRecordingPt(false);
+    }
+  }, [data?.user?.canEdit, data?.user?.isAdmin, reload, reloadAdminAlerts, snapshot]);
+
   const ptPerClosing = calculatePtPerClosing(snapshot);
   const closingRate = calculateClosingRate(snapshot);
   const rank = resolveClosingRank(ptPerClosing);
@@ -295,8 +387,10 @@ export function ClosingDashboardProvider({ children }: ClosingDashboardProviderP
       error,
       isLoading,
       isRecording,
+      isRecordingPt,
       reload,
       recordClosing,
+      recordAcquiredPt,
     };
   }, [
     adminAlerts,
@@ -305,10 +399,12 @@ export function ClosingDashboardProvider({ children }: ClosingDashboardProviderP
     isInactive,
     isLoading,
     isRecording,
+    isRecordingPt,
     monthlyLevel,
     monthlyTitle,
     ptPerClosing,
     rank,
+    recordAcquiredPt,
     recordClosing,
     reload,
     snapshot,

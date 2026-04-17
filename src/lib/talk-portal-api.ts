@@ -80,6 +80,24 @@ export interface RecordClosingResult {
   snapshot: ClosingDashboardSnapshot;
 }
 
+export interface UpdateClosingStatsInput {
+  mode?: "set" | "delta";
+  todayAcquiredPt?: number;
+  todayDialogCount?: number;
+  deltaAcquiredPt?: number;
+  deltaDialogCount?: number;
+}
+
+export interface UpdateClosingStatsResult {
+  snapshot: ClosingDashboardSnapshot;
+}
+
+export interface FetchClosingDashboardInput {
+  email?: string;
+  dayKey?: string;
+  monthKey?: string;
+}
+
 type ApiEnvelope = {
   ok?: boolean;
   message?: string;
@@ -1233,6 +1251,19 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return fallback;
 }
 
+function appendOptionalSearchParam(endpoint: URL, key: string, value: unknown) {
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  const normalized = String(value).trim();
+  if (!normalized) {
+    return;
+  }
+
+  endpoint.searchParams.set(key, normalized);
+}
+
 function toRecordArray(value: unknown): LooseRecord[] {
   if (!Array.isArray(value)) {
     return [];
@@ -1370,7 +1401,11 @@ function isRetryableClosingFetchError(error: unknown) {
   );
 }
 
-async function fetchJsonpEnvelopeByAction(action: string, timeoutMs = 12000): Promise<unknown> {
+async function fetchJsonpEnvelopeByAction(
+  action: string,
+  timeoutMs = 12000,
+  queryParams?: Record<string, unknown>,
+): Promise<unknown> {
   if (!API_URL) {
     throw new TalkPortalApiError(
       "NEXT_PUBLIC_TALK_API_URL が設定されていません",
@@ -1386,6 +1421,13 @@ async function fetchJsonpEnvelopeByAction(action: string, timeoutMs = 12000): Pr
   const callbackName = `talkPortalActionJsonp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const endpoint = new URL(API_URL);
   endpoint.searchParams.set("action", action);
+
+  if (queryParams) {
+    for (const [key, value] of Object.entries(queryParams)) {
+      appendOptionalSearchParam(endpoint, key, value);
+    }
+  }
+
   endpoint.searchParams.set("callback", callbackName);
   endpoint.searchParams.set("_ts", String(Date.now()));
 
@@ -1451,13 +1493,20 @@ async function fetchJsonpEnvelopeByAction(action: string, timeoutMs = 12000): Pr
   });
 }
 
-async function fetchClosingDashboardViaJsonp(timeoutMs = 12000): Promise<ClosingDashboardSnapshot> {
+async function fetchClosingDashboardViaJsonp(
+  timeoutMs = 12000,
+  input: FetchClosingDashboardInput = {},
+): Promise<ClosingDashboardSnapshot> {
   const actions = ["closingDashboard", "getClosingDashboard", "getClosingMetrics"];
   let lastError: unknown = null;
 
   for (const action of actions) {
     try {
-      const raw = await fetchJsonpEnvelopeByAction(action, timeoutMs);
+      const raw = await fetchJsonpEnvelopeByAction(action, timeoutMs, {
+        email: input.email,
+        dayKey: input.dayKey,
+        monthKey: input.monthKey,
+      });
       assertEnvelopeOk(raw, "クロージングダッシュボードの取得に失敗しました");
       return resolveClosingSnapshot(raw);
     } catch (caught) {
@@ -1522,7 +1571,9 @@ async function recordClosingViaJsonp(timeoutMs = 12000): Promise<RecordClosingRe
     : new TalkPortalApiError("クロージング回数更新に失敗しました", 500, "UNKNOWN_ERROR");
 }
 
-export async function fetchClosingDashboardByApi(): Promise<ClosingDashboardSnapshot> {
+export async function fetchClosingDashboardByApi(
+  input: FetchClosingDashboardInput = {},
+): Promise<ClosingDashboardSnapshot> {
   if (!API_URL) {
     throw new TalkPortalApiError(
       "NEXT_PUBLIC_TALK_API_URL が設定されていません",
@@ -1538,6 +1589,9 @@ export async function fetchClosingDashboardByApi(): Promise<ClosingDashboardSnap
     try {
       const endpoint = new URL(API_URL);
       endpoint.searchParams.set("action", action);
+      appendOptionalSearchParam(endpoint, "email", input.email);
+      appendOptionalSearchParam(endpoint, "dayKey", input.dayKey);
+      appendOptionalSearchParam(endpoint, "monthKey", input.monthKey);
       endpoint.searchParams.set("_ts", String(Date.now()));
 
       const response = await fetch(endpoint.toString(), {
@@ -1568,7 +1622,7 @@ export async function fetchClosingDashboardByApi(): Promise<ClosingDashboardSnap
       }
 
       if (isRetryableClosingFetchError(caught)) {
-        return fetchClosingDashboardViaJsonp();
+        return fetchClosingDashboardViaJsonp(12000, input);
       }
 
       throw caught;
@@ -1689,6 +1743,117 @@ export async function recordClosingByApi(): Promise<RecordClosingResult> {
   throw lastError instanceof Error
     ? lastError
     : new TalkPortalApiError("クロージング回数更新に失敗しました", 500, "UNKNOWN_ERROR");
+}
+
+export async function updateClosingStatsByApi(
+  input: UpdateClosingStatsInput,
+): Promise<UpdateClosingStatsResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const actions = ["updateClosingStats", "upsertClosingStats"];
+  let lastError: unknown = null;
+
+  const bodyBase: Record<string, unknown> = {
+    mode: input.mode ?? "delta",
+  };
+
+  if (typeof input.todayAcquiredPt === "number") {
+    bodyBase.todayAcquiredPt = input.todayAcquiredPt;
+  }
+  if (typeof input.todayDialogCount === "number") {
+    bodyBase.todayDialogCount = input.todayDialogCount;
+  }
+  if (typeof input.deltaAcquiredPt === "number") {
+    bodyBase.deltaAcquiredPt = input.deltaAcquiredPt;
+  }
+  if (typeof input.deltaDialogCount === "number") {
+    bodyBase.deltaDialogCount = input.deltaDialogCount;
+  }
+
+  for (const action of actions) {
+    const endpoint = new URL(API_URL);
+    endpoint.searchParams.set("_ts", String(Date.now()));
+    const body = JSON.stringify({ action, ...bodyBase });
+
+    try {
+      const response = await fetch(endpoint.toString(), {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+          Accept: "application/json",
+        },
+        body,
+      });
+
+      const json = await parseJsonResponse(response);
+      assertEnvelopeOk(json, "獲得PTの更新に失敗しました");
+
+      if (!response.ok) {
+        throw new TalkPortalApiError(
+          toMessage(json, "獲得PTの更新に失敗しました"),
+          response.status,
+          toCode(json, "HTTP_ERROR"),
+        );
+      }
+
+      return {
+        snapshot: resolveClosingSnapshot(json),
+      };
+    } catch (caught) {
+      lastError = caught;
+      if (isInvalidActionError(caught)) {
+        continue;
+      }
+
+      const canRetryWithNoCors =
+        caught instanceof TypeError ||
+        (caught instanceof TalkPortalApiError &&
+          (caught.code === "NETWORK_ERROR" ||
+            caught.code === "AUTH_REDIRECT" ||
+            caught.code === "INVALID_JSON" ||
+            caught.code === "HTTP_ERROR"));
+
+      if (!canRetryWithNoCors) {
+        throw caught;
+      }
+
+      try {
+        await fetch(endpoint.toString(), {
+          method: "POST",
+          mode: "no-cors",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "text/plain;charset=UTF-8",
+          },
+          body,
+        });
+      } catch {
+        throw new TalkPortalApiError(
+          "獲得PT更新リクエストを送信できませんでした",
+          0,
+          "POST_NETWORK_ERROR",
+        );
+      }
+
+      const verification = await fetchClosingDashboardByApi();
+      return {
+        snapshot: verification,
+      };
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new TalkPortalApiError("獲得PT更新に失敗しました", 500, "UNKNOWN_ERROR");
 }
 
 export async function fetchClosingInactivityAlertsByApi(): Promise<ClosingInactivityAlert[]> {
