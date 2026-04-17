@@ -66,6 +66,24 @@ function tryParseArrowNote(text: string): { trigger: string; action: string } | 
   return { trigger, action };
 }
 
+function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
+  const structuredGuides = (node.branchGuides ?? [])
+    .filter((guide) => guide.afterLine === lineNumber)
+    .map((guide) => ({
+      trigger: guide.trigger,
+      action: guide.action,
+    }));
+
+  if (structuredGuides.length > 0) {
+    return structuredGuides;
+  }
+
+  return (node.inlineNotes ?? [])
+    .filter((note) => note.afterLine === lineNumber && note.tone === "branch")
+    .map((note) => tryParseArrowNote(note.text))
+    .filter((note): note is { trigger: string; action: string } => Boolean(note));
+}
+
 function BranchGuideInline({
   entries,
   openIndex,
@@ -281,23 +299,19 @@ function TreeNodeCard({
 
   const renderNotes = (lineNumber: number) => {
     const notes = notesForLine(lineNumber);
+    const branchArrowNotes = getBranchGuidesForLine(node, lineNumber);
+    const hasStructuredBranchGuides = (node.branchGuides?.length ?? 0) > 0;
+    const remainingNotes = notes.filter((note) => {
+      if (note.tone !== "branch") {
+        return true;
+      }
 
-    const branchArrowNotes = notes
-      .filter((note) => note.tone === "branch")
-      .map((note) => {
-        const parsed = tryParseArrowNote(note.text);
-        if (!parsed) {
-          return null;
-        }
+      if (hasStructuredBranchGuides) {
+        return false;
+      }
 
-        return {
-          trigger: parsed.trigger,
-          action: parsed.action,
-        };
-      })
-      .filter((note): note is { trigger: string; action: string } => Boolean(note));
-
-    const remainingNotes = notes.filter((note) => !(note.tone === "branch" && Boolean(tryParseArrowNote(note.text))));
+      return !Boolean(tryParseArrowNote(note.text));
+    });
     const openIndex = openBranchIndexByLine[lineNumber] ?? null;
 
     return (

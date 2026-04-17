@@ -14,6 +14,7 @@ import {
   type RecentUpdate,
   type Talk,
   type TalkCategory,
+  type TalkNode,
   type TalkProduct,
   type TalkScene,
 } from "@/types/talk";
@@ -315,8 +316,133 @@ function resolveUser(raw: unknown): TalkPortalUser | undefined {
   return fromEnvelope ?? envelope.user;
 }
 
+type LegacySectionTips = {
+  mindset?: unknown;
+  skill?: unknown;
+};
+
+function clampAfterLine(value: number, maxLine: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(0, Math.trunc(value)), maxLine);
+}
+
+function getNodeScriptLines(node: TalkNode) {
+  return node.readAloudScript && node.readAloudScript.length > 0 ? node.readAloudScript : node.lines;
+}
+
+function tryParseLegacyBranchText(text: string): { trigger: string; action: string } | null {
+  const arrow = text.includes("→") ? "→" : text.includes("->") ? "->" : null;
+  if (!arrow) {
+    return null;
+  }
+
+  const [triggerRaw, actionRaw] = text.split(arrow, 2);
+  const trigger = String(triggerRaw ?? "").trim();
+  const action = String(actionRaw ?? "").trim();
+
+  if (!trigger || !action) {
+    return null;
+  }
+
+  return { trigger, action };
+}
+
+function normalizeTalkListForBranchGuides(talks: Talk[]): Talk[] {
+  return talks.map((talk) => ({
+    ...talk,
+    nodes: talk.nodes.map((node) => {
+      const scriptLines = getNodeScriptLines(node);
+      const maxAfterLine = scriptLines.length;
+
+      const normalizedStructuredGuides = (node.branchGuides ?? []).map((guide) => ({
+        afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
+        trigger: String(guide.trigger ?? ""),
+        action: String(guide.action ?? ""),
+      }));
+
+      const legacyGuides = (node.inlineNotes ?? [])
+        .filter((note) => note.tone === "branch")
+        .map((note) => {
+          const parsed = tryParseLegacyBranchText(String(note.text ?? ""));
+          if (!parsed) {
+            return null;
+          }
+
+          return {
+            afterLine: clampAfterLine(note.afterLine, maxAfterLine),
+            trigger: parsed.trigger,
+            action: parsed.action,
+          };
+        })
+        .filter((guide): guide is { afterLine: number; trigger: string; action: string } => Boolean(guide));
+
+      const mergedGuides = [...normalizedStructuredGuides];
+      for (const legacyGuide of legacyGuides) {
+        const duplicated = mergedGuides.some(
+          (guide) =>
+            guide.afterLine === legacyGuide.afterLine &&
+            guide.trigger === legacyGuide.trigger &&
+            guide.action === legacyGuide.action,
+        );
+
+        if (!duplicated) {
+          mergedGuides.push(legacyGuide);
+        }
+      }
+
+      const remainingInlineNotes = (node.inlineNotes ?? []).filter((note) => note.tone !== "branch");
+
+      return {
+        ...node,
+        branchGuides: mergedGuides.length > 0 ? mergedGuides : undefined,
+        inlineNotes: remainingInlineNotes.length > 0 ? remainingInlineNotes : undefined,
+      };
+    }),
+  }));
+}
+
+function normalizeTalkListForPointBlocks(talks: Talk[]): Talk[] {
+  return talks.map((talk) => ({
+    ...talk,
+    nodes: talk.nodes.map((node) => {
+      const nodeRecord = node as unknown as Record<string, unknown>;
+      const legacyTips = nodeRecord.sectionTips as LegacySectionTips | undefined;
+
+      if (!legacyTips || typeof legacyTips !== "object") {
+        return node;
+      }
+
+      const mindset = String(legacyTips.mindset ?? "");
+      const skill = String(legacyTips.skill ?? "");
+      const hasTipContent = Boolean(mindset.trim() || skill.trim());
+      const scriptLines = node.readAloudScript && node.readAloudScript.length > 0 ? node.readAloudScript : node.lines;
+      const afterLine = scriptLines.length;
+      const existingPointBlocks = node.pointBlocks ?? [];
+      const alreadyExists = existingPointBlocks.some(
+        (item) => item.afterLine === afterLine && item.mindset === mindset && item.skill === skill,
+      );
+
+      const nextPointBlocks = hasTipContent && !alreadyExists
+        ? [...existingPointBlocks, { afterLine, mindset, skill }]
+        : existingPointBlocks;
+
+      const { sectionTips: _legacySectionTips, ...restNode } = nodeRecord;
+
+      return {
+        ...(restNode as TalkNode),
+        pointBlocks: nextPointBlocks,
+      } as typeof node;
+    }),
+  }));
+}
+
 function normalizeBootstrap(raw: unknown): TalkBootstrapPayload {
   const payload = resolvePayload(raw) as LooseRecord;
+  const talks = pickArray<Talk>(payload, ["talks", "トーク"]);
+  const normalizedTalks = normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(talks));
 
   return {
     announcements: pickArray<Announcement>(payload, ["announcements", "アナウンス"]),
@@ -328,7 +454,7 @@ function normalizeBootstrap(raw: unknown): TalkBootstrapPayload {
     talkTags: pickArray<string>(payload, ["talkTags"]),
     productLabels: normalizeProductLabels(pickRecord(payload, ["productLabels"])),
     sceneLabels: normalizeSceneLabels(pickRecord(payload, ["sceneLabels"])),
-    talks: pickArray<Talk>(payload, ["talks", "トーク"]),
+    talks: normalizedTalks,
     user: resolveUser(raw),
   };
 }
@@ -1951,7 +2077,7 @@ export async function getMockBootstrapPayload(): Promise<TalkBootstrapPayload> {
     talkTags: mockTalkTags,
     productLabels: mockProductLabels,
     sceneLabels: mockSceneLabels,
-    talks: mockTalks,
+    talks: normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(mockTalks)),
     user: {
       canEdit: false,
       isAdmin: false,

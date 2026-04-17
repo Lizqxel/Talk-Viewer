@@ -7,11 +7,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { SectionPointAccordion } from "@/components/talk/section-point-accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { HIKARI_SCRIPT_SECTION_DEFS } from "@/lib/talk-sections";
 import { type TalkNode } from "@/types/talk";
 
 interface TalkScriptFlowProps {
   nodes: TalkNode[];
   rootNodeIds: string[];
+  sectionTitleOverrides?: Record<string, string>;
 }
 
 type OutReply = {
@@ -26,39 +28,6 @@ type ScriptSection = {
   outReplies: OutReply[];
   nodes?: TalkNode[];
 };
-
-const hikariScriptSectionDefs = [
-  {
-    id: "opening",
-    title: "アプローチ",
-    nodeIds: ["hikari-hojin-opening", "hikari-open"],
-  },
-  {
-    id: "requirement",
-    title: "主旨 / メリット説明",
-    nodeIds: ["hikari-hojin-purpose", "hikari-hojin-merit", "hikari-purpose", "hikari-benefit"],
-  },
-  {
-    id: "age-check",
-    title: "年齢確認",
-    nodeIds: ["hikari-hojin-age-check", "hikari-age-check"],
-  },
-  {
-    id: "benefit",
-    title: "料金説明/テストクロージング",
-    nodeIds: ["hikari-hojin-benefit", "hikari-price-closing"],
-  },
-  {
-    id: "hearing",
-    title: "ご本人様確認",
-    nodeIds: ["hikari-hojin-hearing", "hikari-confirm-1"],
-  },
-  {
-    id: "closing",
-    title: "流れ説明 / 二重確認案内",
-    nodeIds: ["hikari-hojin-next-steps", "hikari-hojin-double-check", "hikari-next-steps", "hikari-contact", "hikari-double-check"],
-  },
-] as const;
 
 const outReplyByNodeId: Record<string, OutReply[]> = {
   "hikari-open": [
@@ -228,12 +197,30 @@ function tryParseArrowNote(text: string): { trigger: string; action: string } | 
   return { trigger, action };
 }
 
-export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
+function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
+  const structuredGuides = (node.branchGuides ?? [])
+    .filter((guide) => guide.afterLine === lineNumber)
+    .map((guide) => ({
+      trigger: guide.trigger,
+      action: guide.action,
+    }));
+
+  if (structuredGuides.length > 0) {
+    return structuredGuides;
+  }
+
+  return (node.inlineNotes ?? [])
+    .filter((note) => note.afterLine === lineNumber && note.tone === "branch")
+    .map((note) => tryParseArrowNote(note.text))
+    .filter((note): note is { trigger: string; action: string } => Boolean(note));
+}
+
+export function TalkScriptFlow({ nodes, rootNodeIds, sectionTitleOverrides }: TalkScriptFlowProps) {
   const rootNodeId = rootNodeIds[0];
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
-  const sections: ScriptSection[] = hikariScriptSectionDefs
+  const sections: ScriptSection[] = HIKARI_SCRIPT_SECTION_DEFS
     .map((sectionDef) => {
       const sectionNodes = sectionDef.nodeIds
         .map((nodeId) => nodeById.get(nodeId))
@@ -241,7 +228,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
 
       return {
         id: sectionDef.id,
-        title: sectionDef.title,
+        title: sectionTitleOverrides?.[sectionDef.id] || sectionDef.title,
         lines: sectionNodes.flatMap((node) => node.readAloudScript ?? node.lines),
         outReplies: sectionNodes.flatMap((node) => outReplyByNodeId[node.id] ?? []),
         nodes: sectionNodes,
@@ -338,30 +325,28 @@ export function TalkScriptFlow({ nodes, rootNodeIds }: TalkScriptFlowProps) {
 function RenderNodeScript({ node }: { node: TalkNode }) {
   const scriptLines = node.readAloudScript ?? node.lines;
   const lineAnchoredNotes = node.inlineNotes ?? [];
+  const lineAnchoredPoints = node.pointBlocks ?? [];
 
   const [openBranchIndexByLine, setOpenBranchIndexByLine] = useState<Record<number, number | null>>({});
 
   const notesForLine = (lineNumber: number) => lineAnchoredNotes.filter((note) => note.afterLine === lineNumber);
+  const pointsForLine = (lineNumber: number) => lineAnchoredPoints.filter((point) => point.afterLine === lineNumber);
 
   const renderNotes = (lineNumber: number) => {
     const notes = notesForLine(lineNumber);
+    const branchArrowNotes = getBranchGuidesForLine(node, lineNumber);
+    const hasStructuredBranchGuides = (node.branchGuides?.length ?? 0) > 0;
+    const remainingNotes = notes.filter((note) => {
+      if (note.tone !== "branch") {
+        return true;
+      }
 
-    const branchArrowNotes = notes
-      .filter((note) => note.tone === "branch")
-      .map((note) => {
-        const parsed = tryParseArrowNote(note.text);
-        if (!parsed) {
-          return null;
-        }
+      if (hasStructuredBranchGuides) {
+        return false;
+      }
 
-        return {
-          trigger: parsed.trigger,
-          action: parsed.action,
-        };
-      })
-      .filter((note): note is { trigger: string; action: string } => Boolean(note));
-
-    const remainingNotes = notes.filter((note) => !(note.tone === "branch" && Boolean(tryParseArrowNote(note.text))));
+      return !Boolean(tryParseArrowNote(note.text));
+    });
     const openIndex = openBranchIndexByLine[lineNumber] ?? null;
 
     return (
@@ -381,6 +366,15 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
 
         {remainingNotes.map((note, noteIndex) => (
           <div key={`${node.id}-inline-${lineNumber}-${noteIndex}`}>{renderInlineNote(note.text, note.tone)}</div>
+        ))}
+
+        {pointsForLine(lineNumber).map((point, pointIndex) => (
+          <SectionPointAccordion
+            key={`${node.id}-point-${lineNumber}-${pointIndex}`}
+            value={`${node.id}-point-${lineNumber}-${pointIndex}`}
+            mindset={point.mindset}
+            skill={point.skill}
+          />
         ))}
       </>
     );
@@ -403,14 +397,6 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
           </div>
         );
       })}
-
-      {node.sectionTips ? (
-        <SectionPointAccordion
-          value={`${node.id}-section-points`}
-          mindset={node.sectionTips.mindset}
-          skill={node.sectionTips.skill}
-        />
-      ) : null}
     </>
   );
 }

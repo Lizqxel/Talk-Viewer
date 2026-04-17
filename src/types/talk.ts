@@ -12,14 +12,22 @@ export type TalkScene =
 
 export type NodeKind = "opening" | "hearing" | "proposal" | "objection" | "closing" | "note";
 
+export interface TalkPointBlock {
+  afterLine: number;
+  mindset: string;
+  skill: string;
+}
+
+export interface TalkBranchGuide {
+  afterLine: number;
+  trigger: string;
+  action: string;
+}
+
 export interface TalkNode {
   id: string;
   title: string;
   kind: NodeKind;
-  sectionTips?: {
-    mindset: string;
-    skill: string;
-  };
   reactionLabel?: string;
   lines: string[];
   readAloudScript?: string[];
@@ -27,6 +35,8 @@ export interface TalkNode {
   operatorNotes?: string[];
   conditions?: string[];
   doNotRead?: string[];
+  branchGuides?: TalkBranchGuide[];
+  pointBlocks?: TalkPointBlock[];
   inlineNotes?: {
     afterLine: number;
     text: string;
@@ -50,6 +60,7 @@ export interface Talk {
   difficulty: TalkDifficulty;
   tags: string[];
   updatedAt: string;
+  sectionTitleOverrides?: Record<string, string>;
   rootNodeIds: string[];
   nodes: TalkNode[];
 }

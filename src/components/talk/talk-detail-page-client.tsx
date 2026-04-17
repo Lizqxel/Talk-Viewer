@@ -106,7 +106,11 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
           {isScriptFlowTalk ? "台本フロー" : "トークツリー"}
         </h2>
         {isScriptFlowTalk ? (
-          <TalkScriptFlow nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
+          <TalkScriptFlow
+            nodes={talk.nodes}
+            rootNodeIds={talk.rootNodeIds}
+            sectionTitleOverrides={talk.sectionTitleOverrides}
+          />
         ) : (
           <TalkTreeView nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
         )}
