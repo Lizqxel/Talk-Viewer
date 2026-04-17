@@ -266,7 +266,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds, sectionTitleOverrides }: Ta
         <p className="text-sm text-muted-foreground">スクロール中は該当セクションのアウト返しを一時表示し、手動で開いたセクションだけ開いた状態を保持します。</p>
       </motion.div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_260px] sm:items-start md:grid-cols-[minmax(0,1fr)_280px] lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
         <Card className="border-zinc-900/15 bg-card shadow-sm">
           <CardHeader className="border-b bg-muted/20 pb-3">
             <CardTitle className="text-xl text-zinc-900">台本全文</CardTitle>
@@ -303,7 +303,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds, sectionTitleOverrides }: Ta
           </CardContent>
         </Card>
 
-        <div className="xl:sticky xl:top-20">
+        <div className="sm:sticky sm:top-20">
           <OutReplyPanel
             sections={displaySections}
             manualOpenSectionIds={manualOpenSectionIds}
