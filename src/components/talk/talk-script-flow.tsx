@@ -383,14 +383,6 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
           </div>
         );
       })}
-
-      {node.sectionTips ? (
-        <SectionPointAccordion
-          value={`${node.id}-section-points`}
-          mindset={node.sectionTips.mindset}
-          skill={node.sectionTips.skill}
-        />
-      ) : null}
     </>
   );
 }

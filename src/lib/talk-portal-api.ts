@@ -285,8 +285,49 @@ function resolveUser(raw: unknown): TalkPortalUser | undefined {
   return fromEnvelope ?? envelope.user;
 }
 
+type LegacySectionTips = {
+  mindset?: unknown;
+  skill?: unknown;
+};
+
+function normalizeTalkListForPointBlocks(talks: Talk[]): Talk[] {
+  return talks.map((talk) => ({
+    ...talk,
+    nodes: talk.nodes.map((node) => {
+      const nodeRecord = node as unknown as Record<string, unknown>;
+      const legacyTips = nodeRecord.sectionTips as LegacySectionTips | undefined;
+
+      if (!legacyTips || typeof legacyTips !== "object") {
+        return node;
+      }
+
+      const mindset = String(legacyTips.mindset ?? "");
+      const skill = String(legacyTips.skill ?? "");
+      const hasTipContent = Boolean(mindset.trim() || skill.trim());
+      const scriptLines = node.readAloudScript && node.readAloudScript.length > 0 ? node.readAloudScript : node.lines;
+      const afterLine = scriptLines.length;
+      const existingPointBlocks = node.pointBlocks ?? [];
+      const alreadyExists = existingPointBlocks.some(
+        (item) => item.afterLine === afterLine && item.mindset === mindset && item.skill === skill,
+      );
+
+      const nextPointBlocks = hasTipContent && !alreadyExists
+        ? [...existingPointBlocks, { afterLine, mindset, skill }]
+        : existingPointBlocks;
+
+      const { sectionTips: _legacySectionTips, ...restNode } = nodeRecord;
+
+      return {
+        ...(restNode as Talk),
+        pointBlocks: nextPointBlocks,
+      } as typeof node;
+    }),
+  }));
+}
+
 function normalizeBootstrap(raw: unknown): TalkBootstrapPayload {
   const payload = resolvePayload(raw) as LooseRecord;
+  const normalizedTalks = normalizeTalkListForPointBlocks(pickArray<Talk>(payload, ["talks", "トーク"]));
 
   return {
     announcements: pickArray<Announcement>(payload, ["announcements", "アナウンス"]),
@@ -298,7 +339,7 @@ function normalizeBootstrap(raw: unknown): TalkBootstrapPayload {
     talkTags: pickArray<string>(payload, ["talkTags"]),
     productLabels: normalizeProductLabels(pickRecord(payload, ["productLabels"])),
     sceneLabels: normalizeSceneLabels(pickRecord(payload, ["sceneLabels"])),
-    talks: pickArray<Talk>(payload, ["talks", "トーク"]),
+    talks: normalizedTalks,
     user: resolveUser(raw),
   };
 }
@@ -1229,7 +1270,7 @@ export async function getMockBootstrapPayload(): Promise<TalkBootstrapPayload> {
     talkTags: mockTalkTags,
     productLabels: mockProductLabels,
     sceneLabels: mockSceneLabels,
-    talks: mockTalks,
+    talks: normalizeTalkListForPointBlocks(mockTalks),
     user: {
       canEdit: false,
       isAdmin: false,

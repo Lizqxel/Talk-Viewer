@@ -22,10 +22,6 @@ export interface TalkNode {
   id: string;
   title: string;
   kind: NodeKind;
-  sectionTips?: {
-    mindset: string;
-    skill: string;
-  };
   reactionLabel?: string;
   lines: string[];
   readAloudScript?: string[];

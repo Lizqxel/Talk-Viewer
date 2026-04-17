@@ -694,68 +694,6 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                     </div>
                   )}
                 </section>
-
-                <section className="space-y-3 rounded-lg border border-border/70 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">従来ポイント（sectionTips）</h3>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        mutateNode(selectedNode.id, (node) => ({
-                          ...node,
-                          sectionTips: node.sectionTips
-                            ? undefined
-                            : {
-                                mindset: "",
-                                skill: "",
-                              },
-                        }));
-                      }}
-                    >
-                      {selectedNode.sectionTips ? "sectionTipsを削除" : "sectionTipsを追加"}
-                    </Button>
-                  </div>
-
-                  {selectedNode.sectionTips ? (
-                    <div className="space-y-2">
-                      <textarea
-                        value={selectedNode.sectionTips.mindset}
-                        placeholder="意識していること"
-                        onChange={(event) => {
-                          const nextMindset = event.target.value;
-                          mutateNode(selectedNode.id, (node) => ({
-                            ...node,
-                            sectionTips: {
-                              mindset: nextMindset,
-                              skill: node.sectionTips?.skill ?? "",
-                            },
-                          }));
-                        }}
-                        className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-                      />
-
-                      <textarea
-                        value={selectedNode.sectionTips.skill}
-                        placeholder="成績アップのコツ"
-                        onChange={(event) => {
-                          const nextSkill = event.target.value;
-                          mutateNode(selectedNode.id, (node) => ({
-                            ...node,
-                            sectionTips: {
-                              mindset: node.sectionTips?.mindset ?? "",
-                              skill: nextSkill,
-                            },
-                          }));
-                        }}
-                        className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-                      />
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">sectionTips が未設定です。必要な場合は追加ボタンで作成してください。</p>
-                  )}
-                </section>
               </>
             )}
 
