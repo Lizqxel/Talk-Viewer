@@ -454,49 +454,15 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
               <>
                 <section className="space-y-3 rounded-lg border border-border/70 p-3">
                   <h3 className="text-sm font-semibold">本文</h3>
-                  <div className="space-y-2">
-                    {selectedScriptLines.map((line, lineIndex) => (
-                      <div key={`${selectedNode.id}-line-${lineIndex}`} className="space-y-1.5 rounded-md border border-border/60 p-2.5">
-                        <p className="text-xs font-semibold text-muted-foreground">{lineIndex + 1}行目</p>
-                        <textarea
-                          value={line}
-                          onChange={(event) => {
-                            const nextLines = [...selectedScriptLines];
-                            nextLines[lineIndex] = event.target.value;
-                            mutateNode(selectedNode.id, (node) => normalizeNodeScriptLines(node, nextLines));
-                          }}
-                          className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-                          spellCheck={false}
-                        />
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="xs"
-                            disabled={selectedScriptLines.length <= 1}
-                            onClick={() => {
-                              const nextLines = selectedScriptLines.filter((_, index) => index !== lineIndex);
-                              mutateNode(selectedNode.id, (node) => normalizeNodeScriptLines(node, nextLines));
-                            }}
-                          >
-                            行を削除
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const nextLines = [...selectedScriptLines, ""];
+                  <textarea
+                    value={selectedScriptLines.join("\n")}
+                    onChange={(event) => {
+                      const nextLines = event.target.value.split(/\r?\n/);
                       mutateNode(selectedNode.id, (node) => normalizeNodeScriptLines(node, nextLines));
                     }}
-                  >
-                    <Plus className="size-4" aria-hidden="true" />
-                    行を追加
-                  </Button>
+                    className="min-h-64 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                    spellCheck={false}
+                  />
                 </section>
 
                 <section className="space-y-3 rounded-lg border border-border/70 p-3">
