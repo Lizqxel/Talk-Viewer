@@ -243,7 +243,12 @@ function doGet(e) {
       }
 
       var recordedByGet = recordClosing_(userEmail, new Date());
-      appendClosingAudit_("recordClosing", userEmail, "ok", "today=" + recordedByGet.todayClosingCount + ", via=get");
+      appendClosingAudit_(
+        "recordClosing",
+        userEmail,
+        "ok",
+        "today=" + recordedByGet.todayClosingCount + ", via=get",
+      );
 
       return sendResponse_(
         {
@@ -464,7 +469,13 @@ function doPost(e) {
       }
 
       var deletedTalk = deleteTalk_(targetTalkId, userEmail);
-      appendAudit_("deleteTalk", deletedTalk.talkId, userEmail, "ok", "revision=" + deletedTalk.revision);
+      appendAudit_(
+        "deleteTalk",
+        deletedTalk.talkId,
+        userEmail,
+        "ok",
+        "revision=" + deletedTalk.revision,
+      );
 
       return jsonResponse_({
         ok: true,
@@ -610,7 +621,12 @@ function doPost(e) {
       var monthTargetEmail = normalizeEmail_(body.email || userEmail);
       var monthKey = body.monthKey ? String(body.monthKey) : formatTokyoMonthKey_(new Date());
       var resetMonthly = resetClosingMonthly_(monthTargetEmail, monthKey, userEmail, new Date());
-      appendClosingAudit_("resetClosingMonthly", userEmail, "ok", monthTargetEmail + ":" + monthKey);
+      appendClosingAudit_(
+        "resetClosingMonthly",
+        userEmail,
+        "ok",
+        monthTargetEmail + ":" + monthKey,
+      );
 
       return jsonResponse_(
         {
@@ -776,13 +792,19 @@ function listTalks_() {
       return;
     }
 
-    const jsonText = getRowValueByKeys_(row, idx, ["payload_json", "payloadJson", "payload", "json"]);
+    const jsonText = getRowValueByKeys_(row, idx, [
+      "payload_json",
+      "payloadJson",
+      "payload",
+      "json",
+    ]);
     if (!jsonText) {
       return;
     }
 
     const talk = JSON.parse(String(jsonText));
-    talk.updatedAt = getRowValueByKeys_(row, idx, ["updated_at", "updatedAt", "更新日時"]) || talk.updatedAt || "";
+    talk.updatedAt =
+      getRowValueByKeys_(row, idx, ["updated_at", "updatedAt", "更新日時"]) || talk.updatedAt || "";
     talks.push(talk);
   });
 
@@ -888,8 +910,7 @@ function deleteTalk_(talkId, userEmail) {
           JSON.stringify(payload),
         );
       }
-    } catch {
-    }
+    } catch {}
   }
 
   sheet.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
@@ -1244,14 +1265,10 @@ function recordClosing_(email, now) {
   var closing = getOrCreateClosingRow_(normalizedEmail, now, normalizedEmail);
   normalizeClosingPeriod_(closing, dayKey, monthKey, now, normalizedEmail);
 
-  closing.row[closing.idx.today_closing_count] = parseNumber_(
-    closing.row[closing.idx.today_closing_count],
-    0,
-  ) + 1;
-  closing.row[closing.idx.monthly_closing_count] = parseNumber_(
-    closing.row[closing.idx.monthly_closing_count],
-    0,
-  ) + 1;
+  closing.row[closing.idx.today_closing_count] =
+    parseNumber_(closing.row[closing.idx.today_closing_count], 0) + 1;
+  closing.row[closing.idx.monthly_closing_count] =
+    parseNumber_(closing.row[closing.idx.monthly_closing_count], 0) + 1;
   closing.row[closing.idx.last_closing_at] = nowIso;
   closing.row[closing.idx.updated_at] = nowText;
   closing.row[closing.idx.updated_by] = normalizedEmail;
@@ -1290,7 +1307,8 @@ function upsertClosingStats_(email, body, now) {
       dialogInput = body.dialogCount;
     }
 
-    nextPt = ptInput === undefined || ptInput === null ? currentPt : parseNumber_(ptInput, currentPt);
+    nextPt =
+      ptInput === undefined || ptInput === null ? currentPt : parseNumber_(ptInput, currentPt);
     nextDialog =
       dialogInput === undefined || dialogInput === null
         ? currentDialog
