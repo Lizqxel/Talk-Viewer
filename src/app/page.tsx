@@ -72,7 +72,7 @@ export default function HomePage() {
                   return (
                     <Link
                       key={item.id}
-                      href={`/talks/${item.talk.id}`}
+                      href={`/talks/detail?talkId=${encodeURIComponent(item.talk.id)}`}
                       className="group flex min-h-[104px] items-start gap-3 rounded-xl border border-zinc-900/10 bg-background px-3 py-3 transition-colors hover:border-primary/45 hover:bg-primary/5"
                     >
                       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-xs font-semibold text-zinc-100">
@@ -83,10 +83,10 @@ export default function HomePage() {
                         <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{item.reason}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Badge variant="outline" className="border-zinc-900/20 bg-muted/30">
-                            {data.productLabels[item.talk.product]}
+                            {data.productLabels[item.talk.product] ?? item.talk.product}
                           </Badge>
                           <Badge variant="outline" className="border-zinc-900/20 bg-muted/30">
-                            {data.sceneLabels[item.talk.scene]}
+                            {data.sceneLabels[item.talk.scene] ?? item.talk.scene}
                           </Badge>
                         </div>
                       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 import { useTalkBootstrap } from "@/hooks/use-talk-bootstrap";
 import { type TalkPortalApiError, type TalkBootstrapPayload } from "@/lib/talk-portal-api";
@@ -24,11 +24,15 @@ export function TalkBootstrapProvider({ children }: TalkBootstrapProviderProps) 
   const { data, error, isLoading, isFallback, reload } = useTalkBootstrap({ fallbackToMock: false });
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
 
-  useEffect(() => {
-    if (data && !error && !isLoading && !lastLoadedAt) {
-      setLastLoadedAt(new Date());
+  const initialLoadedAt = useMemo(() => {
+    if (!data || error || isLoading) {
+      return null;
     }
-  }, [data, error, isLoading, lastLoadedAt]);
+
+    return new Date();
+  }, [data, error, isLoading]);
+
+  const resolvedLastLoadedAt = lastLoadedAt ?? initialLoadedAt;
 
   const reloadWithTimestamp = useCallback(async () => {
     const reloadError = await reload();
@@ -46,10 +50,10 @@ export function TalkBootstrapProvider({ children }: TalkBootstrapProviderProps) 
       error,
       isLoading,
       isFallback,
-      lastLoadedAt,
+      lastLoadedAt: resolvedLastLoadedAt,
       reload: reloadWithTimestamp,
     };
-  }, [data, error, isFallback, isLoading, lastLoadedAt, reloadWithTimestamp]);
+  }, [data, error, isFallback, isLoading, resolvedLastLoadedAt, reloadWithTimestamp]);
 
   return <TalkBootstrapContext.Provider value={value}>{children}</TalkBootstrapContext.Provider>;
 }

@@ -435,6 +435,54 @@ function doPost(e) {
       });
     }
 
+    if (action === "deleteTalk") {
+      if (!canEdit) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_EDITOR",
+              message: "編集権限がありません",
+            },
+          },
+          403,
+        );
+      }
+
+      var targetTalkId = String(body.talkId || body.id || (body.talk && body.talk.id) || "").trim();
+      if (!targetTalkId) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_TALK",
+              message: "削除対象の talkId が必要です",
+            },
+          },
+          400,
+        );
+      }
+
+      var deletedTalk = deleteTalk_(targetTalkId, userEmail);
+      appendAudit_("deleteTalk", deletedTalk.talkId, userEmail, "ok", "revision=" + deletedTalk.revision);
+
+      return jsonResponse_({
+        ok: true,
+        user: {
+          email: userEmail,
+          canEdit: canEdit,
+          isAdmin: isAdmin,
+        },
+        data: {
+          talkId: deletedTalk.talkId,
+          revision: deletedTalk.revision,
+          deleted: {
+            talkId: deletedTalk.talkId,
+          },
+        },
+      });
+    }
+
     if (
       action === "recordClosing" ||
       action === "incrementClosing" ||
@@ -587,7 +635,7 @@ function doPost(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "updateTalk / upsertEditorPermission / deleteEditorPermission / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
+              "updateTalk / deleteTalk / upsertEditorPermission / deleteEditorPermission / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
           },
         },
         400,
@@ -722,18 +770,19 @@ function listTalks_() {
   const talks = [];
 
   rows.forEach(function (row) {
-    const isActive = String(row[idx.is_active] || "TRUE").toUpperCase() === "TRUE";
+    const rawIsActive = getRowValueByKeys_(row, idx, ["is_active", "isActive", "有効"]);
+    const isActive = parseBoolean_(rawIsActive === "" ? true : rawIsActive, true);
     if (!isActive) {
       return;
     }
 
-    const jsonText = row[idx.payload_json];
+    const jsonText = getRowValueByKeys_(row, idx, ["payload_json", "payloadJson", "payload", "json"]);
     if (!jsonText) {
       return;
     }
 
     const talk = JSON.parse(String(jsonText));
-    talk.updatedAt = row[idx.updated_at] || talk.updatedAt || "";
+    talk.updatedAt = getRowValueByKeys_(row, idx, ["updated_at", "updatedAt", "更新日時"]) || talk.updatedAt || "";
     talks.push(talk);
   });
 
@@ -781,6 +830,74 @@ function upsertTalk_(talk, userEmail) {
   }
 
   return { revision: nextRevision };
+}
+
+function deleteTalk_(talkId, userEmail) {
+  const normalizedTalkId = String(talkId || "").trim();
+  if (!normalizedTalkId) {
+    throw new Error("削除対象の talkId が不正です");
+  }
+
+  const sheet = getSheet_(prop_("TALKS_SHEET", "Talks"));
+  const values = sheet.getDataRange().getValues();
+  if (!values || values.length <= 1) {
+    throw new Error("削除対象のトークが見つかりません: " + normalizedTalkId);
+  }
+
+  const header = values[0];
+  const idx = indexMap_(header);
+  const now = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM-dd HH:mm:ss");
+
+  let rowIndex = -1;
+  let currentRevision = 0;
+
+  for (var i = 1; i < values.length; i += 1) {
+    if (String(values[i][idx.talk_id]) === normalizedTalkId) {
+      rowIndex = i + 1;
+      currentRevision = Number(values[i][idx.revision] || 0);
+      break;
+    }
+  }
+
+  if (rowIndex === -1) {
+    throw new Error("削除対象のトークが見つかりません: " + normalizedTalkId);
+  }
+
+  const rowValues = values[rowIndex - 1].slice();
+  while (rowValues.length < header.length) {
+    rowValues.push("");
+  }
+
+  setRowValueIfPresent_(rowValues, idx, ["updated_at", "updatedAt", "更新日時"], now);
+  setRowValueIfPresent_(rowValues, idx, ["updated_by", "updatedBy", "更新者"], userEmail);
+  setRowValueIfPresent_(rowValues, idx, ["revision", "rev", "リビジョン"], currentRevision + 1);
+  setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], false);
+
+  var payloadText = String(
+    getRowValueByKeys_(rowValues, idx, ["payload_json", "payloadJson", "payload", "json"]) || "",
+  );
+  if (payloadText) {
+    try {
+      var payload = JSON.parse(payloadText);
+      if (payload && typeof payload === "object") {
+        payload.updatedAt = now;
+        setRowValueIfPresent_(
+          rowValues,
+          idx,
+          ["payload_json", "payloadJson", "payload", "json"],
+          JSON.stringify(payload),
+        );
+      }
+    } catch {
+    }
+  }
+
+  sheet.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+
+  return {
+    talkId: normalizedTalkId,
+    revision: currentRevision + 1,
+  };
 }
 
 function buildCategories_(talks) {

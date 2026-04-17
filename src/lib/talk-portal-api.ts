@@ -77,6 +77,11 @@ export interface TalkUpdateResult {
   transport: "fetch" | "no-cors";
 }
 
+export interface TalkDeleteResult {
+  talkId: string;
+  transport: "fetch" | "no-cors";
+}
+
 export interface RecordClosingResult {
   snapshot: ClosingDashboardSnapshot;
 }
@@ -223,16 +228,24 @@ function toOptionalBoolean(value: unknown): boolean | undefined {
 }
 
 function normalizeProductLabels(raw: LooseRecord | null): Record<TalkProduct, string> {
+  const result: Record<TalkProduct, string> = { ...DEFAULT_PRODUCT_LABELS };
+
   if (!raw) {
-    return DEFAULT_PRODUCT_LABELS;
+    return result;
   }
 
-  return {
-    hikari: String(raw.hikari ?? DEFAULT_PRODUCT_LABELS.hikari),
-    denki: String(raw.denki ?? DEFAULT_PRODUCT_LABELS.denki),
-    wifi: String(raw.wifi ?? DEFAULT_PRODUCT_LABELS.wifi),
-    oa: String(raw.oa ?? DEFAULT_PRODUCT_LABELS.oa),
-  };
+  for (const [rawKey, rawValue] of Object.entries(raw)) {
+    const key = stripInvisible(rawKey);
+    const label = String(rawValue ?? "").trim();
+
+    if (!key || !label) {
+      continue;
+    }
+
+    result[key as TalkProduct] = label;
+  }
+
+  return result;
 }
 
 function normalizeSceneLabels(raw: LooseRecord | null): Record<TalkScene, string> {
@@ -429,10 +442,11 @@ function normalizeTalkListForPointBlocks(talks: Talk[]): Talk[] {
         ? [...existingPointBlocks, { afterLine, mindset, skill }]
         : existingPointBlocks;
 
-      const { sectionTips: _legacySectionTips, ...restNode } = nodeRecord;
+      const restNode = { ...nodeRecord };
+      delete restNode.sectionTips;
 
       return {
-        ...(restNode as TalkNode),
+        ...(restNode as unknown as TalkNode),
         pointBlocks: nextPointBlocks,
       } as typeof node;
     }),
@@ -496,6 +510,28 @@ function normalizeUpdateResponse(raw: unknown, fallbackTalkId: string) {
   return {
     talkId: String(talkIdRaw),
     revision: typeof revisionRaw === "number" ? revisionRaw : undefined,
+  };
+}
+
+function normalizeDeleteTalkResponse(raw: unknown, fallbackTalkId: string) {
+  if (!raw || typeof raw !== "object") {
+    return {
+      talkId: fallbackTalkId,
+    };
+  }
+
+  const envelope = raw as Record<string, unknown>;
+  const data = envelope.data && typeof envelope.data === "object"
+    ? (envelope.data as Record<string, unknown>)
+    : envelope;
+
+  const deleted = asRecord(data.deleted);
+  const talkIdRaw =
+    pickFirstValue(deleted ?? data, ["talkId", "talk_id", "id", "targetTalkId", "target_talk_id"]) ??
+    fallbackTalkId;
+
+  return {
+    talkId: String(talkIdRaw),
   };
 }
 
@@ -633,6 +669,42 @@ function resolveDeletedEditorEmail(raw: unknown): string | null {
     const directEmail = pickFirstValue(record, ["email", "editorEmail", "targetEmail", "mail", "メール"]);
     if (directEmail) {
       return String(directEmail).trim().toLowerCase();
+    }
+  }
+
+  return null;
+}
+
+function resolveDeletedTalkId(raw: unknown): string | null {
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return null;
+  }
+
+  const candidates: unknown[] = [];
+  if ("data" in envelope) {
+    candidates.push(envelope.data);
+  }
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    const record = asRecord(candidate);
+    if (!record) {
+      continue;
+    }
+
+    const deleted = pickFirstValue(record, ["deleted", "removed", "talk", "item"]);
+    const deletedRecord = asRecord(deleted);
+    if (deletedRecord) {
+      const deletedTalkId = pickFirstValue(deletedRecord, ["talkId", "talk_id", "id", "targetTalkId"]);
+      if (deletedTalkId) {
+        return String(deletedTalkId).trim();
+      }
+    }
+
+    const directTalkId = pickFirstValue(record, ["talkId", "talk_id", "id", "targetTalkId", "target_talk_id"]);
+    if (directTalkId) {
+      return String(directTalkId).trim();
     }
   }
 
@@ -1102,6 +1174,115 @@ export async function updateTalkByApi(talk: Talk): Promise<TalkUpdateResult> {
       talkId: talk.id,
       transport: "no-cors",
     };
+  }
+}
+
+export async function deleteTalkByApi(talkIdInput: string): Promise<TalkDeleteResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const talkId = talkIdInput.trim();
+  if (!talkId) {
+    throw new TalkPortalApiError("削除対象のトークIDを入力してください", 400, "INVALID_TALK_ID");
+  }
+
+  const endpoint = new URL(API_URL);
+  const body = JSON.stringify({
+    action: "deleteTalk",
+    talkId,
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "トーク削除に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "トーク削除に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    const normalized = normalizeDeleteTalkResponse(json, talkId);
+    const deletedTalkId = resolveDeletedTalkId(json);
+
+    return {
+      talkId: deletedTalkId ?? normalized.talkId,
+      transport: "fetch",
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "トーク削除リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const maxAttempts = 5;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const verification = await fetchTalkBootstrapViaJsonp();
+      const stillExists = verification.talks.some((item) => item.id === talkId);
+
+      if (!stillExists) {
+        return {
+          talkId,
+          transport: "no-cors",
+        };
+      }
+
+      if (attempt < maxAttempts - 1) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 350);
+        });
+      }
+    }
+
+    throw new TalkPortalApiError(
+      "削除後の再取得でトークが残っています",
+      0,
+      "DELETE_VERIFY_FAILED",
+    );
   }
 }
 
