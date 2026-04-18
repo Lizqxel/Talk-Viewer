@@ -74,7 +74,11 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
     }
   };
 
-  const isScriptFlowTalk = talk.id === "hikari-kojin-standard" || talk.id === "hikari-hojin-standard";
+  const isScriptFlowTalk =
+    talk.detailLayout === "script-flow" ||
+    talk.id === "hikari-kojin-standard" ||
+    talk.id === "hikari-hojin-standard" ||
+    talk.id === "docomo-hikari-apo-basic-2";
   const productLabel = data.productLabels[talk.product] ?? talk.product;
   const sceneLabel = data.sceneLabels[talk.scene] ?? talk.scene;
 

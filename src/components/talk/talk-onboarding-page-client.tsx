@@ -544,6 +544,7 @@ export function TalkOnboardingPageClient() {
       difficulty: draft.difficulty,
       tags: splitTags(draft.tags),
       updatedAt: formatDateLabel(now),
+      detailLayout: "script-flow",
       rootNodeIds: [normalizedNodes[0].id],
       nodes: normalizedNodes,
     };

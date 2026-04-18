@@ -158,4 +158,11 @@ npm run migrate:talks
 ```
 
 - `migrate:talks` は内部の投入ページを自動で開き、`autorun=1` で投入処理を開始
+- 単体投入したい場合は `talkId` を付与して実行可能
+
+```powershell
+./scripts/run-talk-migration.ps1 -TalkId "hikari-kojin-standard"
+```
+
+- 直接URLを開く場合は `/talks/migrate?autorun=1&talkId=<トークID>` を使用
 - 内部実装は `src/lib/talk-migration.ts` を使用

@@ -16,6 +16,7 @@ import { type TalkRepository } from "@/repositories/talk-repository";
 const allowedTalkIds = new Set([
   "hikari-kojin-standard",
   "hikari-hojin-standard",
+  "docomo-hikari-apo-basic-2",
 ]);
 
 const talkTitleOverrides: Record<string, string> = {
