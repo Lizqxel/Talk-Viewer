@@ -41,6 +41,9 @@ const adminNavigationItem = {
   match: (pathname: string) => pathname.startsWith("/admin/script-permissions"),
 };
 
+const publicBasePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
+const bbcMarkSrc = `${publicBasePath}/bbc-mark.svg`;
+
 export function AppSidebar() {
   const pathname = usePathname();
   const { data } = useTalkBootstrapContext();
@@ -64,7 +67,7 @@ export function AppSidebar() {
       <div className={cn("border-b py-4", isCompactTalkSidebar ? "px-2 xl:px-5" : "px-5")}>
         <Link href="/" className="group flex items-center gap-3 focus-visible:outline-none">
           <div className="flex size-10 items-center justify-center rounded-full border border-zinc-900/12 bg-zinc-50 transition-colors group-hover:bg-zinc-100">
-            <Image src="/bbc-mark.svg" alt="Broad Band Connection" width={24} height={24} className="size-6" priority />
+            <Image src={bbcMarkSrc} alt="Broad Band Connection" width={24} height={24} className="size-6" priority />
           </div>
           <div className={cn("min-w-0", isCompactTalkSidebar ? "hidden xl:block" : null)}>
             <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-500 uppercase">Broad Band</p>
