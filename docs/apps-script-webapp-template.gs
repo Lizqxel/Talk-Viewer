@@ -829,15 +829,7 @@ function ensureDailyHighlightsColumns_(sheet) {
     header = [];
   }
 
-  var required = [
-    "id",
-    "title",
-    "detail",
-    "is_active",
-    "sort_order",
-    "updated_at",
-    "updated_by",
-  ];
+  var required = ["id", "title", "detail", "is_active", "sort_order", "updated_at", "updated_by"];
 
   var changed = false;
   for (var i = 0; i < required.length; i += 1) {
@@ -875,7 +867,9 @@ function listDailyHighlights_() {
       continue;
     }
 
-    var id = String(getRowValueByKeys_(row, idx, ["id", "highlight_id", "highlightId"]) || "").trim();
+    var id = String(
+      getRowValueByKeys_(row, idx, ["id", "highlight_id", "highlightId"]) || "",
+    ).trim();
     var title = String(getRowValueByKeys_(row, idx, ["title", "見出し"]) || "").trim();
     var detail = String(getRowValueByKeys_(row, idx, ["detail", "body", "本文"]) || "").trim();
 
@@ -940,7 +934,9 @@ function upsertDailyHighlight_(highlight, actorEmail) {
   var targetRowNumber = -1;
   var existingSortOrder = "";
   for (var i = 1; i < values.length; i += 1) {
-    var rowId = String(getRowValueByKeys_(values[i], idx, ["id", "highlight_id", "highlightId"]) || "").trim();
+    var rowId = String(
+      getRowValueByKeys_(values[i], idx, ["id", "highlight_id", "highlightId"]) || "",
+    ).trim();
     if (rowId === id) {
       targetRowNumber = i + 1;
       existingSortOrder = getRowValueByKeys_(values[i], idx, ["sort_order", "sortOrder", "並び順"]);
@@ -949,9 +945,15 @@ function upsertDailyHighlight_(highlight, actorEmail) {
   }
 
   var defaultSortOrder =
-    existingSortOrder === "" ? Math.max(1, values.length) : parseNumber_(existingSortOrder, Math.max(1, values.length));
+    existingSortOrder === ""
+      ? Math.max(1, values.length)
+      : parseNumber_(existingSortOrder, Math.max(1, values.length));
   var sortOrderCandidate = highlight.sortOrder;
-  if (sortOrderCandidate === undefined || sortOrderCandidate === null || sortOrderCandidate === "") {
+  if (
+    sortOrderCandidate === undefined ||
+    sortOrderCandidate === null ||
+    sortOrderCandidate === ""
+  ) {
     sortOrderCandidate = defaultSortOrder;
   }
   var sortOrder = parseNumber_(sortOrderCandidate, defaultSortOrder);
