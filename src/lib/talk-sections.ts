@@ -1,9 +1,13 @@
-import { type NodeKind, type Talk, type TalkNode } from "@/types/talk";
+import { type NodeKind, type Talk, type TalkNode, type TalkSectionDef } from "@/types/talk";
 
 export interface TalkSection {
   id: string;
   title: string;
   nodes: TalkNode[];
+}
+
+interface DeriveTalkSectionsOptions {
+  includeEmptySections?: boolean;
 }
 
 export const HIKARI_SCRIPT_SECTION_DEFS = [
@@ -55,6 +59,26 @@ function withSectionOverride(talk: Talk, sectionId: string, fallbackTitle: strin
   return override && override.trim() ? override : fallbackTitle;
 }
 
+function resolveExplicitSections(talk: Talk, options?: DeriveTalkSectionsOptions): TalkSection[] {
+  const includeEmptySections = options?.includeEmptySections ?? false;
+  const sectionDefs = talk.sectionDefs ?? [];
+  const nodeById = new Map(talk.nodes.map((node) => [node.id, node]));
+
+  return sectionDefs
+    .map((sectionDef) => {
+      const sectionNodes = sectionDef.nodeIds
+        .map((nodeId) => nodeById.get(nodeId))
+        .filter((node): node is TalkNode => Boolean(node));
+
+      return {
+        id: sectionDef.id,
+        title: sectionDef.title,
+        nodes: sectionNodes,
+      };
+    })
+    .filter((section) => includeEmptySections || section.nodes.length > 0);
+}
+
 function resolveScriptSections(talk: Talk): TalkSection[] {
   const nodeById = new Map(talk.nodes.map((node) => [node.id, node]));
 
@@ -92,11 +116,25 @@ function resolveKindSections(talk: Talk): TalkSection[] {
     }));
 }
 
-export function deriveTalkSections(talk: Talk): TalkSection[] {
+export function deriveTalkSections(talk: Talk, options?: DeriveTalkSectionsOptions): TalkSection[] {
+  if ((talk.sectionDefs?.length ?? 0) > 0) {
+    return resolveExplicitSections(talk, options);
+  }
+
   const scriptedSections = resolveScriptSections(talk);
   if (scriptedSections.length > 0) {
     return scriptedSections;
   }
 
   return resolveKindSections(talk);
+}
+
+export function createSectionDefsFromTalk(talk: Talk): TalkSectionDef[] {
+  const sections = deriveTalkSections(talk, { includeEmptySections: true });
+
+  return sections.map((section) => ({
+    id: section.id,
+    title: section.title,
+    nodeIds: section.nodes.map((node) => node.id),
+  }));
 }

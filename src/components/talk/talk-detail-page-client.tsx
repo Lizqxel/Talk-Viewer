@@ -154,6 +154,7 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
           <TalkScriptFlow
             nodes={talk.nodes}
             rootNodeIds={talk.rootNodeIds}
+            sectionDefs={talk.sectionDefs}
             sectionTitleOverrides={talk.sectionTitleOverrides}
           />
         ) : (
