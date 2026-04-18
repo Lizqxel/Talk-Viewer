@@ -14,12 +14,12 @@ export const HIKARI_SCRIPT_SECTION_DEFS = [
   {
     id: "opening",
     title: "アプローチ",
-    nodeIds: ["hikari-hojin-opening", "hikari-open"],
+    nodeIds: ["hikari-hojin-opening", "hikari-open", "docomo2-front", "docomo2-approach"],
   },
   {
     id: "requirement",
     title: "主旨 / メリット説明",
-    nodeIds: ["hikari-hojin-purpose", "hikari-hojin-merit", "hikari-purpose", "hikari-benefit"],
+    nodeIds: ["hikari-hojin-purpose", "hikari-hojin-merit", "hikari-purpose", "hikari-benefit", "docomo2-test-close"],
   },
   {
     id: "age-check",
@@ -29,7 +29,7 @@ export const HIKARI_SCRIPT_SECTION_DEFS = [
   {
     id: "benefit",
     title: "料金説明/テストクロージング",
-    nodeIds: ["hikari-hojin-benefit", "hikari-price-closing"],
+    nodeIds: ["hikari-hojin-benefit", "hikari-price-closing", "docomo2-hearing"],
   },
   {
     id: "hearing",
@@ -39,7 +39,23 @@ export const HIKARI_SCRIPT_SECTION_DEFS = [
   {
     id: "closing",
     title: "流れ説明 / 二重確認案内",
-    nodeIds: ["hikari-hojin-next-steps", "hikari-hojin-double-check", "hikari-next-steps", "hikari-contact", "hikari-double-check"],
+    nodeIds: [
+      "hikari-hojin-next-steps",
+      "hikari-hojin-double-check",
+      "hikari-next-steps",
+      "hikari-contact",
+      "hikari-double-check",
+    ],
+  },
+  {
+    id: "docomo-flow",
+    title: "流れ説明",
+    nodeIds: ["docomo2-flow"],
+  },
+  {
+    id: "docomo-last-close",
+    title: "ラスクロ",
+    nodeIds: ["docomo2-last-close"],
   },
 ] as const;
 

@@ -1,9 +1,16 @@
 param(
-  [string]$BaseUrl = "http://localhost:3000"
+  [string]$BaseUrl = "http://localhost:3000",
+  [string]$TalkId = ""
 )
 
 $healthUrl = "$BaseUrl/"
-$targetUrl = "$BaseUrl/talks/migrate?autorun=1"
+
+if ([string]::IsNullOrWhiteSpace($TalkId)) {
+  $targetUrl = "$BaseUrl/talks/migrate?autorun=1"
+} else {
+  $encodedTalkId = [System.Uri]::EscapeDataString($TalkId.Trim())
+  $targetUrl = "$BaseUrl/talks/migrate?autorun=1&talkId=$encodedTalkId"
+}
 
 try {
   Invoke-WebRequest -Uri $healthUrl -Method Head -UseBasicParsing -TimeoutSec 5 | Out-Null

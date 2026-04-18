@@ -14,6 +14,8 @@ export type TalkScene =
 
 export type NodeKind = "opening" | "hearing" | "proposal" | "objection" | "closing" | "note";
 
+export type TalkDetailLayout = "script-flow" | "tree";
+
 export interface TalkPointBlock {
   afterLine: number;
   mindset: string;
@@ -74,6 +76,7 @@ export interface Talk {
   difficulty: TalkDifficulty;
   tags: string[];
   updatedAt: string;
+  detailLayout?: TalkDetailLayout;
   sectionDefs?: TalkSectionDef[];
   sectionTitleOverrides?: Record<string, string>;
   rootNodeIds: string[];

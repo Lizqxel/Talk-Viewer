@@ -255,6 +255,7 @@ export function TalkOnboardingPageClient() {
       difficulty: UNSET_DIFFICULTY,
       tags: [],
       updatedAt: formatDateLabel(new Date()),
+      detailLayout: "script-flow",
       rootNodeIds: [bootstrapNode.id],
       nodes: [bootstrapNode],
     };

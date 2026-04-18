@@ -296,6 +296,10 @@ function TreeNodeCard({
 
   const isExpanded = expandedNodeIds.includes(node.id);
   const isActive = activeNodeId === node.id;
+  const hasIntent = node.intent.trim().length > 0;
+  const hasNgExamples = node.ngExamples.length > 0;
+  const hasTips = node.tips.length > 0;
+  const hasMetaPanels = hasIntent || hasNgExamples || hasTips;
 
   const renderNotes = (lineNumber: number) => {
     const notes = notesForLine(lineNumber);
@@ -337,14 +341,25 @@ function TreeNodeCard({
   };
 
   const handleCopy = async () => {
-    const copyText = [
+    const copyLines = [
       `タイトル: ${node.title}`,
       "セリフ:",
       ...scriptLines,
-      `意図: ${node.intent}`,
-      `NG例: ${node.ngExamples.join(" / ")}`,
-      `コツ: ${node.tips.join(" / ")}`,
-    ].join("\n");
+    ];
+
+    if (hasIntent) {
+      copyLines.push(`意図: ${node.intent}`);
+    }
+
+    if (hasNgExamples) {
+      copyLines.push(`NG例: ${node.ngExamples.join(" / ")}`);
+    }
+
+    if (hasTips) {
+      copyLines.push(`コツ: ${node.tips.join(" / ")}`);
+    }
+
+    const copyText = copyLines.join("\n");
 
     try {
       await navigator.clipboard.writeText(copyText);
@@ -417,23 +432,31 @@ function TreeNodeCard({
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <InfoPanel
-                  icon={<Target className="size-4 text-primary" aria-hidden="true" />}
-                  title="意図"
-                  content={[node.intent]}
-                />
-                <InfoPanel
-                  icon={<MessageCircleWarning className="size-4 text-primary" aria-hidden="true" />}
-                  title="NG例"
-                  content={node.ngExamples}
-                />
-                <InfoPanel
-                  icon={<Lightbulb className="size-4 text-primary" aria-hidden="true" />}
-                  title="コツ"
-                  content={node.tips}
-                />
-              </div>
+              {hasMetaPanels ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {hasIntent ? (
+                    <InfoPanel
+                      icon={<Target className="size-4 text-primary" aria-hidden="true" />}
+                      title="意図"
+                      content={[node.intent]}
+                    />
+                  ) : null}
+                  {hasNgExamples ? (
+                    <InfoPanel
+                      icon={<MessageCircleWarning className="size-4 text-primary" aria-hidden="true" />}
+                      title="NG例"
+                      content={node.ngExamples}
+                    />
+                  ) : null}
+                  {hasTips ? (
+                    <InfoPanel
+                      icon={<Lightbulb className="size-4 text-primary" aria-hidden="true" />}
+                      title="コツ"
+                      content={node.tips}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
 
               {childNodes.length > 0 ? (
                 <div className="space-y-1 rounded-lg border bg-background p-3">

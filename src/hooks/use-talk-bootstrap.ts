@@ -17,6 +17,7 @@ interface UseTalkBootstrapOptions {
 
 const HARD_TIMEOUT_MS = 15000;
 const AUTO_AUTHORIZE_STORAGE_KEY = "talk-portal:auto-authorize-attempted";
+const FORCE_MOCK_STORAGE_KEY = "talk-portal:force-mock-bootstrap";
 
 async function withHardTimeout<T>(
   task: Promise<T>,
@@ -84,6 +85,49 @@ function clearAutoAuthorizeFlag() {
   }
 }
 
+function isTruthyFlag(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function isFalsyFlag(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off";
+}
+
+function shouldForceMockBootstrap() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const queryFlag = params.get("mock");
+
+    if (isTruthyFlag(queryFlag)) {
+      window.sessionStorage.setItem(FORCE_MOCK_STORAGE_KEY, "1");
+      return true;
+    }
+
+    if (isFalsyFlag(queryFlag)) {
+      window.sessionStorage.removeItem(FORCE_MOCK_STORAGE_KEY);
+      return false;
+    }
+
+    return window.sessionStorage.getItem(FORCE_MOCK_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function createHardTimeoutError(code: "BOOTSTRAP_TIMEOUT" | "JSONP_TIMEOUT") {
   if (code === "JSONP_TIMEOUT") {
     return new TalkPortalApiError(
@@ -136,6 +180,14 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
   }, []);
 
   const load = useCallback(async (signal?: AbortSignal): Promise<TalkPortalApiError | null> => {
+    if (shouldForceMockBootstrap()) {
+      const mockPayload = await getMockBootstrapPayload();
+      setData(mockPayload);
+      setError(null);
+      setIsFallback(false);
+      return null;
+    }
+
     try {
       const payload = await withHardTimeout(
         fetchTalkBootstrap(signal),
