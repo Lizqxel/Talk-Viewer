@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { TalksExplorer } from "@/components/talk/talks-explorer";
@@ -7,7 +8,7 @@ import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 
-export default function TalksPage() {
+function TalksPageContent() {
   const { data, error, isLoading, isFallback, reload } = useTalkBootstrapContext();
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get("q")?.trim() ?? "";
@@ -31,5 +32,13 @@ export default function TalksPage() {
         canEdit={Boolean(data.user?.canEdit)}
       />
     </div>
+  );
+}
+
+export default function TalksPage() {
+  return (
+    <Suspense fallback={<ApiStatusCard isLoading />}>
+      <TalksPageContent />
+    </Suspense>
   );
 }

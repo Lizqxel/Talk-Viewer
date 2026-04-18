@@ -22,7 +22,11 @@ jobs:
             AUTHOR="${{ github.actor }}"
             BRANCH="${{ github.ref_name }}"
             URL="${{ github.event.head_commit.url }}"
-            echo "CONTENT=📦 **${REPO}**\n✅ **Push to \`${BRANCH}\`** by **${AUTHOR}**\n${COMMIT_MSG}\n${URL}" >> $GITHUB_OUTPUT
+            {
+              echo "CONTENT<<EOF"
+              printf '📦 **%s**\n✅ **Push to `%s`** by **%s**\n%s\n%s\n' "$REPO" "$BRANCH" "$AUTHOR" "$COMMIT_MSG" "$URL"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -32,7 +36,11 @@ jobs:
             URL="${{ github.event.pull_request.html_url }}"
             BASE="${{ github.event.pull_request.base.ref }}"
             HEAD="${{ github.event.pull_request.head.ref }}"
-            echo "CONTENT=📦 **${REPO}**\n🆕 **PR Opened** by **${AUTHOR}**\n**${TITLE}**\n\`${HEAD}\` → \`${BASE}\`\n${URL}" >> $GITHUB_OUTPUT
+            {
+              echo "CONTENT<<EOF"
+              printf '📦 **%s**\n🆕 **PR Opened** by **%s**\n**%s**\n`%s` → `%s`\n%s\n' "$REPO" "$AUTHOR" "$TITLE" "$HEAD" "$BASE" "$URL"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -42,11 +50,19 @@ jobs:
             URL="${{ github.event.pull_request.html_url }}"
             BASE="${{ github.event.pull_request.base.ref }}"
             HEAD="${{ github.event.pull_request.head.ref }}"
-            echo "CONTENT=📦 **${REPO}**\n🎉 **PR Merged** by **${AUTHOR}**\n**${TITLE}**\n\`${HEAD}\` → \`${BASE}\`\n${URL}" >> $GITHUB_OUTPUT
+            {
+              echo "CONTENT<<EOF"
+              printf '📦 **%s**\n🎉 **PR Merged** by **%s**\n**%s**\n`%s` → `%s`\n%s\n' "$REPO" "$AUTHOR" "$TITLE" "$HEAD" "$BASE" "$URL"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "CONTENT=" >> $GITHUB_OUTPUT
+          {
+            echo "CONTENT<<EOF"
+            echo ""
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Send to Discord
         if: steps.msg.outputs.CONTENT != ''
@@ -54,6 +70,10 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           CONTENT: ${{ steps.msg.outputs.CONTENT }}
         run: |
-          curl -H "Content-Type: application/json" \
-               -d "{\"content\":\"${CONTENT}\"}" \
-               "$DISCORD_WEBHOOK_URL"
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is not set. Skip notification."
+            exit 0
+          fi
+
+          payload=$(jq -Rn --arg content "$CONTENT" '{content: $content}')
+          curl -fsS -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
