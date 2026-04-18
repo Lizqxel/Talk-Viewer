@@ -28,6 +28,17 @@ export interface TalkBranchGuide {
   action: string;
 }
 
+export interface TalkOutReply {
+  out: string;
+  reply: string;
+}
+
+export interface TalkSectionDef {
+  id: string;
+  title: string;
+  nodeIds: string[];
+}
+
 export interface TalkNode {
   id: string;
   title: string;
@@ -40,6 +51,7 @@ export interface TalkNode {
   conditions?: string[];
   doNotRead?: string[];
   branchGuides?: TalkBranchGuide[];
+  outReplies?: TalkOutReply[];
   pointBlocks?: TalkPointBlock[];
   inlineNotes?: {
     afterLine: number;
@@ -65,6 +77,7 @@ export interface Talk {
   tags: string[];
   updatedAt: string;
   detailLayout?: TalkDetailLayout;
+  sectionDefs?: TalkSectionDef[];
   sectionTitleOverrides?: Record<string, string>;
   rootNodeIds: string[];
   nodes: TalkNode[];

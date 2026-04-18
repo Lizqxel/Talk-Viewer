@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageSquarePlus, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageCircleReply, MessageSquarePlus, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
@@ -11,9 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { deriveTalkSections } from "@/lib/talk-sections";
+import { createSectionDefsFromTalk, deriveTalkSections } from "@/lib/talk-sections";
 import { deleteTalkByApi, updateTalkByApi } from "@/lib/talk-portal-api";
-import { type Talk, type TalkBranchGuide, type TalkNode } from "@/types/talk";
+import { type NodeKind, type Talk, type TalkBranchGuide, type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
 
 interface TalkEditorPageClientProps {
   talkId: string;
@@ -24,6 +24,10 @@ type BranchGuideDraft = {
   afterLine: number;
   trigger: string;
   action: string;
+};
+
+type OutReplyDraft = TalkOutReply & {
+  id: string;
 };
 
 function cloneTalk(talk: Talk): Talk {
@@ -125,21 +129,6 @@ function getAfterLineOptions(lines: string[]) {
   return options;
 }
 
-function upsertSectionTitleOverride(talk: Talk, sectionId: string, title: string): Talk {
-  const current = { ...(talk.sectionTitleOverrides ?? {}) };
-
-  if (title.trim()) {
-    current[sectionId] = title;
-  } else {
-    delete current[sectionId];
-  }
-
-  return {
-    ...talk,
-    sectionTitleOverrides: Object.keys(current).length > 0 ? current : undefined,
-  };
-}
-
 function updateNodeById(talk: Talk, nodeId: string, updater: (node: TalkNode) => TalkNode): Talk {
   return {
     ...talk,
@@ -168,6 +157,12 @@ function hasIncompleteBranchGuide(talk: Talk) {
   );
 }
 
+function hasIncompleteOutReply(talk: Talk) {
+  return talk.nodes.some((node) =>
+    (node.outReplies ?? []).some((entry) => !entry.out.trim() || !entry.reply.trim()),
+  );
+}
+
 function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
   const next = [...items];
   const [target] = next.splice(fromIndex, 1);
@@ -177,6 +172,111 @@ function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
 
 function renderSectionId(sectionId: string) {
   return sectionId.replace(/-/g, " ");
+}
+
+function sanitizeIdPart(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function createUniqueSectionId(talk: Talk) {
+  const existingIds = new Set((talk.sectionDefs ?? []).map((section) => section.id));
+  let seq = (talk.sectionDefs?.length ?? 0) + 1;
+
+  while (existingIds.has(`section-${seq}`)) {
+    seq += 1;
+  }
+
+  return `section-${seq}`;
+}
+
+function createUniqueNodeId(talk: Talk, sectionId: string) {
+  const existingIds = new Set(talk.nodes.map((node) => node.id));
+  const base = sanitizeIdPart(`${talk.id}-${sectionId}`) || "node";
+  let seq = 1;
+  let candidate = `${base}-${seq}`;
+
+  while (existingIds.has(candidate)) {
+    seq += 1;
+    candidate = `${base}-${seq}`;
+  }
+
+  return candidate;
+}
+
+function normalizeSectionDefs(sectionDefs: TalkSectionDef[], nodes: TalkNode[]) {
+  const validNodeIds = new Set(nodes.map((node) => node.id));
+  const usedNodeIds = new Set<string>();
+
+  const normalized = sectionDefs.map((section) => {
+    const nextNodeIds = section.nodeIds.filter((nodeId) => {
+      if (!validNodeIds.has(nodeId) || usedNodeIds.has(nodeId)) {
+        return false;
+      }
+
+      usedNodeIds.add(nodeId);
+      return true;
+    });
+
+    return {
+      ...section,
+      nodeIds: nextNodeIds,
+    };
+  });
+
+  const orphanNodeIds = nodes.map((node) => node.id).filter((nodeId) => !usedNodeIds.has(nodeId));
+  if (orphanNodeIds.length > 0) {
+    if (normalized[0]) {
+      normalized[0] = {
+        ...normalized[0],
+        nodeIds: [...normalized[0].nodeIds, ...orphanNodeIds],
+      };
+    } else {
+      normalized.push({
+        id: "section-1",
+        title: "セクション 1",
+        nodeIds: orphanNodeIds,
+      });
+    }
+  }
+
+  return normalized;
+}
+
+function ensureSectionDefs(talk: Talk) {
+  if ((talk.sectionDefs?.length ?? 0) > 0) {
+    return talk.sectionDefs!;
+  }
+
+  return createSectionDefsFromTalk(talk);
+}
+
+function inferNodeKind(sectionId: string): NodeKind {
+  const normalized = sectionId.toLowerCase();
+
+  if (normalized.includes("opening")) return "opening";
+  if (normalized.includes("hearing") || normalized.includes("requirement") || normalized.includes("age-check")) return "hearing";
+  if (normalized.includes("proposal") || normalized.includes("benefit")) return "proposal";
+  if (normalized.includes("objection")) return "objection";
+  if (normalized.includes("closing")) return "closing";
+
+  return "note";
+}
+
+function createNodeDraft(talk: Talk, sectionId: string): TalkNode {
+  return {
+    id: createUniqueNodeId(talk, sectionId),
+    title: "新規ノード",
+    kind: inferNodeKind(sectionId),
+    lines: [""],
+    readAloudScript: [""],
+    intent: "",
+    ngExamples: [],
+    tips: [],
+    nextNodeIds: [],
+  };
 }
 
 export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
@@ -199,14 +299,19 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
       return;
     }
 
-    setDraftTalk(cloneTalk(talk));
+    const cloned = cloneTalk(talk);
+    if ((cloned.sectionDefs?.length ?? 0) === 0) {
+      cloned.sectionDefs = createSectionDefsFromTalk(cloned);
+    }
+
+    setDraftTalk(cloned);
   }, [talk, isDirty]);
 
   const sections = useMemo(() => {
     if (!draftTalk) {
       return [];
     }
-    return deriveTalkSections(draftTalk);
+    return deriveTalkSections(draftTalk, { includeEmptySections: true });
   }, [draftTalk]);
 
   useEffect(() => {
@@ -269,6 +374,198 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     }));
   };
 
+  const handleAddSection = () => {
+    let nextSectionId = "";
+
+    mutateTalk((prevTalk) => {
+      const sectionDefs = ensureSectionDefs(prevTalk);
+      nextSectionId = createUniqueSectionId({ ...prevTalk, sectionDefs });
+
+      return {
+        ...prevTalk,
+        sectionDefs: [
+          ...sectionDefs,
+          {
+            id: nextSectionId,
+            title: "新規セクション",
+            nodeIds: [],
+          },
+        ],
+      };
+    });
+
+    if (nextSectionId) {
+      setSelectedSectionId(nextSectionId);
+      setSelectedNodeId("");
+    }
+  };
+
+  const handleMoveSection = (fromIndex: number, toIndex: number) => {
+    mutateTalk((prevTalk) => {
+      const sectionDefs = ensureSectionDefs(prevTalk);
+      return {
+        ...prevTalk,
+        sectionDefs: arrayMove(sectionDefs, fromIndex, toIndex),
+      };
+    });
+  };
+
+  const handleDeleteSection = (sectionId: string) => {
+    const targetSection = sections.find((section) => section.id === sectionId);
+    if (!targetSection) {
+      return;
+    }
+
+    const firstConfirm = window.confirm(`「${targetSection.title}」を削除しますか？`);
+    if (!firstConfirm) {
+      return;
+    }
+
+    const nodeCount = targetSection.nodes.length;
+    const secondConfirm = window.confirm(
+      `配下ノード ${nodeCount} 件も一括削除されます。\n本当に削除してよいですか？`,
+    );
+    if (!secondConfirm) {
+      return;
+    }
+
+    mutateTalk((prevTalk) => {
+      const sectionDefs = ensureSectionDefs(prevTalk);
+      const removedNodeIds = new Set((sectionDefs.find((section) => section.id === sectionId)?.nodeIds ?? []));
+
+      const nextNodes = prevTalk.nodes
+        .filter((node) => !removedNodeIds.has(node.id))
+        .map((node) => ({
+          ...node,
+          nextNodeIds: node.nextNodeIds.filter((nextId) => !removedNodeIds.has(nextId)),
+        }));
+
+      const nextSectionDefs = normalizeSectionDefs(
+        sectionDefs
+          .filter((section) => section.id !== sectionId)
+          .map((section) => ({
+            ...section,
+            nodeIds: section.nodeIds.filter((nodeId) => !removedNodeIds.has(nodeId)),
+          })),
+        nextNodes,
+      );
+
+      const validNodeIds = new Set(nextNodes.map((node) => node.id));
+      const nextRootNodeIds = prevTalk.rootNodeIds.filter((nodeId) => validNodeIds.has(nodeId));
+
+      return {
+        ...prevTalk,
+        nodes: nextNodes,
+        rootNodeIds:
+          nextRootNodeIds.length > 0
+            ? nextRootNodeIds
+            : nextNodes[0]
+              ? [nextNodes[0].id]
+              : [],
+        sectionDefs: nextSectionDefs,
+      };
+    });
+  };
+
+  const handleAddNodeToSection = (sectionId: string) => {
+    let nextNodeId = "";
+
+    mutateTalk((prevTalk) => {
+      const sectionDefs = ensureSectionDefs(prevTalk);
+      const sectionIndex = sectionDefs.findIndex((section) => section.id === sectionId);
+      if (sectionIndex < 0) {
+        return prevTalk;
+      }
+
+      const nextNode = createNodeDraft({ ...prevTalk, sectionDefs }, sectionId);
+      nextNodeId = nextNode.id;
+
+      const nextSectionDefs = sectionDefs.map((section, index) =>
+        index === sectionIndex
+          ? {
+              ...section,
+              nodeIds: [...section.nodeIds, nextNode.id],
+            }
+          : section,
+      );
+
+      return {
+        ...prevTalk,
+        nodes: [...prevTalk.nodes, nextNode],
+        rootNodeIds: prevTalk.rootNodeIds.length > 0 ? prevTalk.rootNodeIds : [nextNode.id],
+        sectionDefs: nextSectionDefs,
+      };
+    });
+
+    if (nextNodeId) {
+      setSelectedSectionId(sectionId);
+      setSelectedNodeId(nextNodeId);
+    }
+  };
+
+  const handleMoveNodeInSection = (sectionId: string, fromIndex: number, toIndex: number) => {
+    mutateTalk((prevTalk) => {
+      const sectionDefs = ensureSectionDefs(prevTalk);
+
+      return {
+        ...prevTalk,
+        sectionDefs: sectionDefs.map((section) =>
+          section.id === sectionId
+            ? {
+                ...section,
+                nodeIds: arrayMove(section.nodeIds, fromIndex, toIndex),
+              }
+            : section,
+        ),
+      };
+    });
+  };
+
+  const handleDeleteNodeInSection = (nodeId: string) => {
+    const node = draftTalk?.nodes.find((item) => item.id === nodeId);
+    if (!node) {
+      return;
+    }
+
+    const confirmed = window.confirm(`ノード「${node.title}」を削除しますか？`);
+    if (!confirmed) {
+      return;
+    }
+
+    mutateTalk((prevTalk) => {
+      const sectionDefs = ensureSectionDefs(prevTalk);
+      const nextNodes = prevTalk.nodes
+        .filter((item) => item.id !== nodeId)
+        .map((item) => ({
+          ...item,
+          nextNodeIds: item.nextNodeIds.filter((nextId) => nextId !== nodeId),
+        }));
+
+      const nextSectionDefs = normalizeSectionDefs(
+        sectionDefs.map((section) => ({
+          ...section,
+          nodeIds: section.nodeIds.filter((id) => id !== nodeId),
+        })),
+        nextNodes,
+      );
+
+      const validNodeIds = new Set(nextNodes.map((item) => item.id));
+      const nextRootNodeIds = prevTalk.rootNodeIds.filter((id) => validNodeIds.has(id));
+
+      return {
+        ...prevTalk,
+        nodes: nextNodes,
+        rootNodeIds:
+          nextRootNodeIds.length > 0
+            ? nextRootNodeIds
+            : nextNodes[0]
+              ? [nextNodes[0].id]
+              : [],
+        sectionDefs: nextSectionDefs,
+      };
+    });
+  };
+
   if (isLoading || (!data && error) || !data) {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
   }
@@ -314,6 +611,11 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
 
     if (hasIncompleteBranchGuide(draftTalk)) {
       setSaveError("会話ガイドに未入力があります");
+      return;
+    }
+
+    if (hasIncompleteOutReply(draftTalk)) {
+      setSaveError("アウト返しに未入力があります");
       return;
     }
 
@@ -363,6 +665,11 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   };
 
   const currentGuides = selectedNode ? extractBranchGuides(selectedNode) : [];
+  const currentOutReplies: OutReplyDraft[] = (selectedNode?.outReplies ?? []).map((entry, index) => ({
+    id: `${selectedNode?.id ?? "node"}-out-reply-${index}`,
+    out: entry.out,
+    reply: entry.reply,
+  }));
   const currentPointBlocks = selectedNode?.pointBlocks ?? [];
 
   return (
@@ -391,46 +698,126 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
       <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <Card className="border-border/80">
           <CardHeader>
-            <CardTitle className="text-base">セクション</CardTitle>
-            <CardDescription>セクションタイトルを編集し、対象ノードを選択します。</CardDescription>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">セクション</CardTitle>
+                <CardDescription>セクション内の + からノードを追加します。</CardDescription>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={handleAddSection}>
+                <Plus className="size-4" aria-hidden="true" />
+                セクション追加
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {sections.map((section) => {
+            {sections.map((section, sectionIndex) => {
               const isSelected = selectedSection?.id === section.id;
 
               return (
                 <div key={section.id} className={`rounded-lg border p-3 ${isSelected ? "border-primary/50 bg-primary/5" : "border-border/70"}`}>
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{renderSectionId(section.id)}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{renderSectionId(section.id)}</p>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          disabled={sectionIndex === 0}
+                          onClick={() => handleMoveSection(sectionIndex, sectionIndex - 1)}
+                        >
+                          上へ
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          disabled={sectionIndex === sections.length - 1}
+                          onClick={() => handleMoveSection(sectionIndex, sectionIndex + 1)}
+                        >
+                          下へ
+                        </Button>
+                        <Button type="button" variant="outline" size="xs" onClick={() => handleDeleteSection(section.id)}>
+                          削除
+                        </Button>
+                      </div>
+                    </div>
                     <Input
                       value={section.title}
                       onChange={(event) => {
                         const nextTitle = event.target.value;
-                        mutateTalk((prevTalk) => upsertSectionTitleOverride(prevTalk, section.id, nextTitle));
+                        mutateTalk((prevTalk) => {
+                          const sectionDefs = ensureSectionDefs(prevTalk);
+                          return {
+                            ...prevTalk,
+                            sectionDefs: sectionDefs.map((item) =>
+                              item.id === section.id
+                                ? {
+                                    ...item,
+                                    title: nextTitle,
+                                  }
+                                : item,
+                            ),
+                          };
+                        });
                       }}
                     />
+                    <Button type="button" variant="outline" size="sm" onClick={() => handleAddNodeToSection(section.id)}>
+                      <Plus className="size-4" aria-hidden="true" />
+                      このセクションにノード追加
+                    </Button>
                   </div>
 
                   <div className="mt-3 space-y-1.5">
-                    {section.nodes.map((node) => {
+                    {section.nodes.length === 0 ? (
+                      <p className="rounded-md border border-dashed border-border/70 px-2.5 py-2 text-xs text-muted-foreground">
+                        ノードはまだありません
+                      </p>
+                    ) : null}
+
+                    {section.nodes.map((node, nodeIndex) => {
                       const isNodeSelected = selectedNode?.id === node.id;
 
                       return (
-                        <button
-                          key={node.id}
-                          type="button"
-                          className={`w-full rounded-md border px-2.5 py-2 text-left text-sm transition-colors ${
-                            isNodeSelected
-                              ? "border-primary/60 bg-primary/10 text-foreground"
-                              : "border-border/70 bg-background hover:bg-muted/50"
-                          }`}
-                          onClick={() => {
-                            setSelectedSectionId(section.id);
-                            setSelectedNodeId(node.id);
-                          }}
-                        >
-                          <p className="font-medium leading-5">{node.title}</p>
-                        </button>
+                        <div key={node.id} className="rounded-md border border-border/60 bg-background p-1.5">
+                          <button
+                            type="button"
+                            className={`w-full rounded-md border px-2.5 py-2 text-left text-sm transition-colors ${
+                              isNodeSelected
+                                ? "border-primary/60 bg-primary/10 text-foreground"
+                                : "border-border/70 bg-background hover:bg-muted/50"
+                            }`}
+                            onClick={() => {
+                              setSelectedSectionId(section.id);
+                              setSelectedNodeId(node.id);
+                            }}
+                          >
+                            <p className="font-medium leading-5">{node.title}</p>
+                          </button>
+                          <div className="mt-1 flex justify-end gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={nodeIndex === 0}
+                              onClick={() => handleMoveNodeInSection(section.id, nodeIndex, nodeIndex - 1)}
+                            >
+                              上へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={nodeIndex === section.nodes.length - 1}
+                              onClick={() => handleMoveNodeInSection(section.id, nodeIndex, nodeIndex + 1)}
+                            >
+                              下へ
+                            </Button>
+                            <Button type="button" variant="outline" size="xs" onClick={() => handleDeleteNodeInSection(node.id)}>
+                              削除
+                            </Button>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
@@ -449,6 +836,26 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
               </div>
               {selectedNode ? (
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      mutateNode(selectedNode.id, (node) => ({
+                        ...node,
+                        outReplies: [
+                          ...(node.outReplies ?? []),
+                          {
+                            out: "",
+                            reply: "",
+                          },
+                        ],
+                      }));
+                    }}
+                  >
+                    <MessageCircleReply className="size-4" aria-hidden="true" />
+                    アウト返し追加
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -501,6 +908,21 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
               <p className="text-sm text-muted-foreground">編集対象のノードを左の一覧から選択してください。</p>
             ) : (
               <>
+                <section className="space-y-2 rounded-lg border border-border/70 p-3">
+                  <h3 className="text-sm font-semibold">ノードタイトル</h3>
+                  <Input
+                    value={selectedNode.title}
+                    onChange={(event) => {
+                      const nextTitle = event.target.value;
+                      mutateNode(selectedNode.id, (node) => ({
+                        ...node,
+                        title: nextTitle,
+                      }));
+                    }}
+                    placeholder="ノードタイトル"
+                  />
+                </section>
+
                 <section className="space-y-3 rounded-lg border border-border/70 p-3">
                   <h3 className="text-sm font-semibold">本文</h3>
                   <textarea
@@ -611,6 +1033,102 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                               size="xs"
                               onClick={() => {
                                 updateGuides(selectedNode, (guides) => guides.filter((_, index) => index !== guideIndex));
+                              }}
+                            >
+                              削除
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3 rounded-lg border border-border/70 p-3">
+                  <h3 className="text-sm font-semibold">アウト返し</h3>
+                  {currentOutReplies.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">アウト返しはまだありません。ノード右上のアウト返し追加で作成できます。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentOutReplies.map((entry, outReplyIndex) => (
+                        <div key={entry.id} className="space-y-2 rounded-md border border-border/60 p-2.5">
+                          <Input
+                            value={entry.out}
+                            placeholder="OUT（お客様の反応）"
+                            onChange={(event) => {
+                              const nextOut = event.target.value;
+                              mutateNode(selectedNode.id, (node) => ({
+                                ...node,
+                                outReplies: (node.outReplies ?? []).map((item, index) =>
+                                  index === outReplyIndex
+                                    ? {
+                                        ...item,
+                                        out: nextOut,
+                                      }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                          />
+
+                          <textarea
+                            value={entry.reply}
+                            placeholder="アウト返し"
+                            onChange={(event) => {
+                              const nextReply = event.target.value;
+                              mutateNode(selectedNode.id, (node) => ({
+                                ...node,
+                                outReplies: (node.outReplies ?? []).map((item, index) =>
+                                  index === outReplyIndex
+                                    ? {
+                                        ...item,
+                                        reply: nextReply,
+                                      }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                            className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                          />
+
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={outReplyIndex === 0}
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  outReplies: arrayMove(node.outReplies ?? [], outReplyIndex, outReplyIndex - 1),
+                                }));
+                              }}
+                            >
+                              上へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={outReplyIndex === currentOutReplies.length - 1}
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  outReplies: arrayMove(node.outReplies ?? [], outReplyIndex, outReplyIndex + 1),
+                                }));
+                              }}
+                            >
+                              下へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  outReplies: (node.outReplies ?? []).filter((_, index) => index !== outReplyIndex),
+                                }));
                               }}
                             >
                               削除

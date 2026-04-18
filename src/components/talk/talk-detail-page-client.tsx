@@ -80,7 +80,8 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
     talk.id === "hikari-hojin-standard" ||
     talk.id === "docomo-hikari-apo-basic-2";
   const productLabel = data.productLabels[talk.product] ?? talk.product;
-  const sceneLabel = data.sceneLabels[talk.scene] ?? talk.scene;
+  const sceneLabel = String(data.sceneLabels[talk.scene] ?? talk.scene).trim();
+  const difficultyLabel = String(talk.difficulty ?? "").trim();
 
   return (
     <div className="space-y-6">
@@ -98,8 +99,8 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">{productLabel}</Badge>
-              <Badge variant="outline">{sceneLabel}</Badge>
-              <Badge variant="outline">{talk.difficulty}</Badge>
+              {sceneLabel ? <Badge variant="outline">{sceneLabel}</Badge> : null}
+              {difficultyLabel ? <Badge variant="outline">{difficultyLabel}</Badge> : null}
               <span className="text-xs text-muted-foreground">最終更新: {talk.updatedAt}</span>
             </div>
             {data.user?.canEdit ? (
@@ -157,6 +158,7 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
           <TalkScriptFlow
             nodes={talk.nodes}
             rootNodeIds={talk.rootNodeIds}
+            sectionDefs={talk.sectionDefs}
             sectionTitleOverrides={talk.sectionTitleOverrides}
           />
         ) : (
