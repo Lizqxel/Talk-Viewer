@@ -126,5 +126,4 @@ export interface DailyHighlight {
   id: string;
   title: string;
   detail: string;
-  priority: "high" | "medium";
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AlertCircle, Loader2, RefreshCw, Search } from "lucide-react";
 
@@ -21,11 +21,26 @@ const adminMobileNavItem = {
   match: (pathname: string) => pathname.startsWith("/admin/script-permissions"),
 };
 
+const highlightsMobileNavItem = {
+  href: "/admin/highlights",
+  label: "重要情報管理",
+  match: (pathname: string) => pathname.startsWith("/admin/highlights"),
+};
+
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data, isLoading, error, reload, lastLoadedAt } = useTalkBootstrapContext();
   const [refreshFeedback, setRefreshFeedback] = useState<string | null>(null);
-  const mobileNavItems = data?.user?.isAdmin ? [...baseMobileNavItems, adminMobileNavItem] : baseMobileNavItems;
+  const [searchText, setSearchText] = useState("");
+  const canEditPortal = Boolean(data?.user?.canEdit || data?.user?.isAdmin);
+  const recentUpdatesCount = data?.recentUpdates.length ?? 0;
+  const announcementsCount = data?.announcements.length ?? 0;
+  const mobileNavItems = [
+    ...baseMobileNavItems,
+    ...(canEditPortal ? [highlightsMobileNavItem] : []),
+    ...(data?.user?.isAdmin ? [adminMobileNavItem] : []),
+  ];
 
   const handleRefresh = async () => {
     setRefreshFeedback(null);
@@ -53,20 +68,35 @@ export function AppHeader() {
     : "未取得";
   const errorMessage = refreshFeedback || error?.message || null;
 
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const keyword = searchText.trim();
+
+    if (!keyword) {
+      router.push("/talks");
+      return;
+    }
+
+    const params = new URLSearchParams({ q: keyword });
+    router.push(`/talks?${params.toString()}`);
+  };
+
   return (
     <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="flex h-16 items-center gap-4 px-4 md:px-8">
-        <div className="relative w-full max-w-xl">
+        <form className="relative w-full max-w-xl" onSubmit={handleSearchSubmit}>
           <Search
             className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />
           <Input
             aria-label="トーク検索"
-            placeholder="トーク名・カテゴリ・キーワードで検索（UI準備中）"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder="トーク名・カテゴリ・キーワードで検索"
             className="h-10 border-border/80 bg-muted/40 pr-3 pl-9 shadow-none"
           />
-        </div>
+        </form>
         <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => void handleRefresh()} disabled={isLoading}>
           {isLoading ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -77,8 +107,8 @@ export function AppHeader() {
         </Button>
         <div className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
           <span className="rounded-md border bg-muted px-2 py-1">取得: {lastLoadedLabel}</span>
-          <span className="rounded-md border bg-muted px-2 py-1">更新: 3件</span>
-          <span className="rounded-md border bg-muted px-2 py-1">周知: 3件</span>
+          <span className="rounded-md border bg-muted px-2 py-1">更新: {recentUpdatesCount}件</span>
+          <span className="rounded-md border bg-muted px-2 py-1">周知: {announcementsCount}件</span>
         </div>
       </div>
 

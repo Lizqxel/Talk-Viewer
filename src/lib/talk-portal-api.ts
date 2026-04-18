@@ -54,6 +54,22 @@ export interface ScriptEditorPermissionDeleteResult {
   email: string;
 }
 
+export interface UpsertDailyHighlightInput {
+  id: string;
+  title: string;
+  detail: string;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+export interface DailyHighlightUpsertResult {
+  id: string;
+  title: string;
+  detail: string;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
 export interface TalkBootstrapPayload {
   announcements: Announcement[];
   dailyHighlights: DailyHighlight[];
@@ -575,6 +591,60 @@ function normalizeEditorPermission(raw: unknown): ScriptEditorPermission | null 
     updatedAt: updatedAt ? String(updatedAt) : undefined,
     updatedBy: updatedBy ? String(updatedBy) : undefined,
   };
+}
+
+function normalizeDailyHighlight(raw: unknown): DailyHighlight | null {
+  const record = asRecord(raw);
+  if (!record) {
+    return null;
+  }
+
+  const id = String(pickFirstValue(record, ["id", "highlightId", "highlight_id"]) ?? "").trim();
+  const title = String(pickFirstValue(record, ["title", "heading", "name"]) ?? "").trim();
+  const detail = String(pickFirstValue(record, ["detail", "body", "description", "text"]) ?? "").trim();
+
+  if (!id || !title || !detail) {
+    return null;
+  }
+
+  return {
+    id,
+    title,
+    detail,
+  };
+}
+
+function resolveDailyHighlight(raw: unknown): DailyHighlight | null {
+  const direct = normalizeDailyHighlight(raw);
+  if (direct) {
+    return direct;
+  }
+
+  const envelope = asRecord(raw);
+  if (!envelope) {
+    return null;
+  }
+
+  const candidates: unknown[] = [];
+  if ("data" in envelope) {
+    candidates.push(envelope.data);
+  }
+  candidates.push(raw);
+
+  for (const candidate of candidates) {
+    const record = asRecord(candidate);
+    if (!record) {
+      continue;
+    }
+
+    const nested = pickFirstValue(record, ["highlight", "dailyHighlight", "item", "row"]);
+    const resolved = normalizeDailyHighlight(nested);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
 }
 
 function normalizeEditorPermissionList(raw: unknown): ScriptEditorPermission[] {
@@ -1457,6 +1527,152 @@ export async function upsertScriptEditorPermission(
       canEdit: savedPermission.canEdit,
       isActive: savedPermission.isActive,
       isAdmin: savedPermission.isAdmin,
+    };
+  }
+}
+
+export async function upsertDailyHighlightByApi(
+  input: UpsertDailyHighlightInput,
+): Promise<DailyHighlightUpsertResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const id = input.id.trim();
+  if (!id) {
+    throw new TalkPortalApiError("ハイライトIDが不正です", 400, "INVALID_DAILY_HIGHLIGHT_ID");
+  }
+
+  const title = input.title.trim();
+  if (!title) {
+    throw new TalkPortalApiError("タイトルを入力してください", 400, "INVALID_DAILY_HIGHLIGHT_TITLE");
+  }
+
+  const detail = input.detail.trim();
+  if (!detail) {
+    throw new TalkPortalApiError("本文を入力してください", 400, "INVALID_DAILY_HIGHLIGHT_DETAIL");
+  }
+
+  const isActive = input.isActive === undefined ? true : Boolean(input.isActive);
+  const sortOrder = typeof input.sortOrder === "number" && Number.isFinite(input.sortOrder)
+    ? Math.max(1, Math.floor(input.sortOrder))
+    : undefined;
+
+  const endpoint = new URL(API_URL);
+  const body = JSON.stringify({
+    action: "upsertDailyHighlight",
+    highlight: {
+      id,
+      title,
+      detail,
+      isActive,
+      ...(sortOrder !== undefined ? { sortOrder } : {}),
+    },
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "本日の重要情報の更新に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "本日の重要情報の更新に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    const highlight = resolveDailyHighlight(json);
+
+    return {
+      id: highlight?.id ?? id,
+      title: highlight?.title ?? title,
+      detail: highlight?.detail ?? detail,
+      sortOrder,
+      isActive,
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "本日の重要情報更新リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const verification = await fetchTalkBootstrapViaJsonp();
+    const savedHighlight = verification.dailyHighlights.find((item) => item.id === id);
+
+    if (!isActive) {
+      if (savedHighlight) {
+        throw new TalkPortalApiError(
+          "無効化後の再取得で本日の重要情報が残っています",
+          0,
+          "UPDATE_VERIFY_FAILED",
+        );
+      }
+
+      return {
+        id,
+        title,
+        detail,
+        sortOrder,
+        isActive,
+      };
+    }
+
+    if (!savedHighlight) {
+      throw new TalkPortalApiError(
+        "更新後の再取得で本日の重要情報が確認できませんでした",
+        0,
+        "UPDATE_VERIFY_FAILED",
+      );
+    }
+
+    return {
+      id: savedHighlight.id,
+      title: savedHighlight.title,
+      detail: savedHighlight.detail,
+      sortOrder,
+      isActive,
     };
   }
 }

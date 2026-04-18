@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { type Talk, type TalkCategory, type TalkDifficulty, type TalkProduct, type TalkScene } from "@/types/talk";
 
 interface TalksExplorerProps {
+  initialQuery?: string;
   talks: Talk[];
   categories: TalkCategory[];
   tags: string[];
@@ -41,6 +42,7 @@ function toOptionalLabel(value: string | undefined | null) {
 }
 
 export function TalksExplorer({
+  initialQuery,
   talks,
   categories,
   tags,
@@ -50,7 +52,7 @@ export function TalksExplorer({
   canEdit,
 }: TalksExplorerProps) {
   const showFilters = false;
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [selectedProducts, setSelectedProducts] = useState<TalkProduct[]>([]);
   const [selectedScenes, setSelectedScenes] = useState<TalkScene[]>([]);

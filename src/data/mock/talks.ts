@@ -1099,19 +1099,16 @@ export const dailyHighlights: DailyHighlight[] = [
     id: "highlight-1",
     title: "本日の重要情報",
     detail: "断り切り返しで“否定せず受け止める”を最優先。評価軸に追加済み。",
-    priority: "high",
   },
   {
     id: "highlight-2",
     title: "KPIフォーカス",
     detail: "本日は“再架電日時の確定率”を重点確認。目標は 62%。",
-    priority: "medium",
   },
   {
     id: "highlight-3",
     title: "運用メモ",
     detail: "失注理由の入力は商談終了後10分以内に統一してください。",
-    priority: "medium",
   },
 ];
 
