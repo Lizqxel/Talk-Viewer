@@ -31,6 +31,12 @@ export interface TalkOutReply {
   reply: string;
 }
 
+export interface TalkSectionDef {
+  id: string;
+  title: string;
+  nodeIds: string[];
+}
+
 export interface TalkNode {
   id: string;
   title: string;
@@ -68,6 +74,7 @@ export interface Talk {
   difficulty: TalkDifficulty;
   tags: string[];
   updatedAt: string;
+  sectionDefs?: TalkSectionDef[];
   sectionTitleOverrides?: Record<string, string>;
   rootNodeIds: string[];
   nodes: TalkNode[];

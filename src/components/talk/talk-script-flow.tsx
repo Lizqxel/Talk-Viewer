@@ -9,11 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { DEFAULT_OUT_REPLIES_BY_NODE_ID } from "@/lib/default-out-replies";
 import { HIKARI_SCRIPT_SECTION_DEFS } from "@/lib/talk-sections";
-import { type TalkNode, type TalkOutReply } from "@/types/talk";
+import { type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
 
 interface TalkScriptFlowProps {
   nodes: TalkNode[];
   rootNodeIds: string[];
+  sectionDefs?: TalkSectionDef[];
   sectionTitleOverrides?: Record<string, string>;
 }
 
@@ -93,12 +94,20 @@ function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
     .filter((note): note is { trigger: string; action: string } => Boolean(note));
 }
 
-export function TalkScriptFlow({ nodes, rootNodeIds, sectionTitleOverrides }: TalkScriptFlowProps) {
+export function TalkScriptFlow({ nodes, rootNodeIds, sectionDefs, sectionTitleOverrides }: TalkScriptFlowProps) {
   const rootNodeId = rootNodeIds[0];
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
-  const sections: ScriptSection[] = HIKARI_SCRIPT_SECTION_DEFS
+  const effectiveSectionDefs = sectionDefs && sectionDefs.length > 0
+    ? sectionDefs
+    : HIKARI_SCRIPT_SECTION_DEFS.map((section) => ({
+        id: section.id,
+        title: sectionTitleOverrides?.[section.id] || section.title,
+        nodeIds: [...section.nodeIds],
+      }));
+
+  const sections: ScriptSection[] = effectiveSectionDefs
     .map((sectionDef) => {
       const sectionNodes = sectionDef.nodeIds
         .map((nodeId) => nodeById.get(nodeId))
@@ -106,7 +115,7 @@ export function TalkScriptFlow({ nodes, rootNodeIds, sectionTitleOverrides }: Ta
 
       return {
         id: sectionDef.id,
-        title: sectionTitleOverrides?.[sectionDef.id] || sectionDef.title,
+        title: sectionDef.title,
         lines: sectionNodes.flatMap((node) => node.readAloudScript ?? node.lines),
         outReplies: sectionNodes.flatMap((node) =>
           node.outReplies ?? (DEFAULT_OUT_REPLIES_BY_NODE_ID[node.id] ?? []),
