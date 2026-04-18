@@ -34,6 +34,28 @@ export default function HomePage() {
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
   }, [data]);
 
+  const recentUpdateCards = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+
+    const toTimestamp = (value: string) => {
+      const timestamp = Date.parse(value);
+      return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+    };
+
+    return [...data.recentUpdates]
+      .sort((a, b) => {
+        const diff = toTimestamp(b.date) - toTimestamp(a.date);
+        if (diff !== 0) {
+          return diff;
+        }
+
+        return b.id.localeCompare(a.id);
+      })
+      .slice(0, 5);
+  }, [data]);
+
   if (isLoading || (!data && error) || !data) {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
   }
@@ -119,9 +141,41 @@ export default function HomePage() {
                 <CardDescription>更新点を短時間で把握</CardDescription>
               </CardHeader>
               <CardContent className="flex-1">
-                <div className="rounded-lg border border-zinc-900/12 bg-muted/20 px-3 py-3">
-                  <p className="text-sm text-muted-foreground">ここにはRecent Updatesが入ります</p>
-                </div>
+                {recentUpdateCards.length === 0 ? (
+                  <div className="rounded-lg border border-zinc-900/12 bg-muted/20 px-3 py-3">
+                    <p className="text-sm text-muted-foreground">最近の更新はまだありません。</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {recentUpdateCards.map((item) => {
+                      const typeLabel =
+                        item.type === "talk" ? "トーク" : item.type === "notice" ? "周知" : "システム";
+
+                      const row = (
+                        <div className="rounded-lg border border-zinc-900/12 bg-muted/20 px-3 py-2.5 transition-colors hover:border-primary/45 hover:bg-primary/5">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-sm font-semibold text-zinc-900">{item.title}</p>
+                            <Badge variant="outline" className="shrink-0 border-zinc-900/20 bg-background text-[11px]">
+                              {typeLabel}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
+                          <p className="mt-1.5 text-[11px] text-zinc-500">{item.date || "日付未設定"}</p>
+                        </div>
+                      );
+
+                      if (!item.talkId) {
+                        return <div key={item.id}>{row}</div>;
+                      }
+
+                      return (
+                        <Link key={item.id} href={`/talks/detail?talkId=${encodeURIComponent(item.talkId)}`}>
+                          {row}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </StaggerItem>
