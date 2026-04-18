@@ -1,11 +1,15 @@
 "use client";
 
 import {
+  CheckCircle2,
   BellRing,
+  Loader2,
   Megaphone,
+  TriangleAlert,
+  UserRound,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { BrandHero } from "@/components/home/brand-hero";
 import { Reveal, StaggerGrid, StaggerItem } from "@/components/motion/motion-primitives";
@@ -14,11 +18,57 @@ import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { updateMyDisplayNameByApi } from "@/lib/talk-portal-api";
+
+function toErrorMessage(caught: unknown) {
+  if (caught instanceof Error) {
+    return caught.message;
+  }
+
+  return String(caught);
+}
 
 export default function HomePage() {
   const { data, error, isLoading, isFallback, reload } = useTalkBootstrapContext();
   const canEditImportantInfo = Boolean(data?.user?.canEdit || data?.user?.isAdmin);
+  const [displayNameDraft, setDisplayNameDraft] = useState("");
+  const [isSavingDisplayName, setIsSavingDisplayName] = useState(false);
+  const [displayNameMessage, setDisplayNameMessage] = useState<string | null>(null);
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null);
+
+  const currentUserEmail = data?.user?.email?.trim() ?? "";
+  const currentDisplayName = data?.user?.name?.trim() ?? "";
+
+  useEffect(() => {
+    if (!data) {
+      return;
+    }
+
+    setDisplayNameDraft(data.user?.name ?? "");
+  }, [data]);
+
+  const normalizedDisplayNameDraft = useMemo(
+    () => displayNameDraft.replace(/\s+/g, " ").trim(),
+    [displayNameDraft],
+  );
+
+  const canSaveDisplayName =
+    !isSavingDisplayName &&
+    normalizedDisplayNameDraft.length <= 60 &&
+    normalizedDisplayNameDraft !== currentDisplayName;
+
+  const currentUserLabel = useMemo(() => {
+    if (!currentUserEmail) {
+      return currentDisplayName || "unknown";
+    }
+
+    return currentDisplayName
+      ? `${currentDisplayName} (${currentUserEmail})`
+      : currentUserEmail;
+  }, [currentDisplayName, currentUserEmail]);
 
   const featuredTalkCards = useMemo(() => {
     if (!data) {
@@ -60,6 +110,37 @@ export default function HomePage() {
     return <ApiStatusCard isLoading={isLoading} error={error} onRetry={() => void reload()} />;
   }
 
+  const handleSaveDisplayName = async () => {
+    setDisplayNameError(null);
+    setDisplayNameMessage(null);
+
+    if (normalizedDisplayNameDraft.length > 60) {
+      setDisplayNameError("表示名は60文字以内で入力してください。");
+      return;
+    }
+
+    setIsSavingDisplayName(true);
+
+    try {
+      const result = await updateMyDisplayNameByApi(displayNameDraft);
+      const reloadError = await reload();
+
+      setDisplayNameMessage(
+        result.transport === "fetch"
+          ? "表示名を更新しました。"
+          : "表示名を更新しました（検証経由）。",
+      );
+
+      if (reloadError) {
+        setDisplayNameError(`表示名の反映後データ再取得に失敗しました: ${reloadError.message}`);
+      }
+    } catch (caught) {
+      setDisplayNameError(toErrorMessage(caught));
+    } finally {
+      setIsSavingDisplayName(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {isFallback ? <ApiFallbackNotice onRetry={() => void reload()} reason={error?.message} /> : null}
@@ -74,6 +155,58 @@ export default function HomePage() {
           <p className="pl-2 text-sm text-muted-foreground">
             ここからは日常業務向けのポータル導線です。最短で台本に到達できるよう、利用頻度順で配置しています。
           </p>
+        </section>
+      </Reveal>
+
+      <Reveal>
+        <section>
+          <Card className="border-zinc-900/15 bg-card shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-zinc-900">
+                <UserRound className="size-4 text-primary" aria-hidden="true" />
+                表示名設定
+              </CardTitle>
+              <CardDescription>自分の表示名を設定できます。未入力時はメールアドレス表示になります。</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">ログイン中: {currentUserLabel}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={displayNameDraft}
+                  onChange={(event) => {
+                    setDisplayNameDraft(event.target.value);
+                    setDisplayNameError(null);
+                    setDisplayNameMessage(null);
+                  }}
+                  placeholder="例: 山田 太郎"
+                  className="max-w-sm"
+                  maxLength={60}
+                  disabled={isSavingDisplayName}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void handleSaveDisplayName()}
+                  disabled={!canSaveDisplayName}
+                >
+                  {isSavingDisplayName ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                  保存
+                </Button>
+              </div>
+              {displayNameMessage ? (
+                <p className="flex items-center gap-1.5 text-sm text-emerald-700">
+                  <CheckCircle2 className="size-4" aria-hidden="true" />
+                  {displayNameMessage}
+                </p>
+              ) : null}
+              {displayNameError ? (
+                <p className="flex items-center gap-1.5 text-sm text-destructive">
+                  <TriangleAlert className="size-4" aria-hidden="true" />
+                  {displayNameError}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
         </section>
       </Reveal>
 

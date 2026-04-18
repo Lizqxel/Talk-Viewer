@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createSectionDefsFromTalk, deriveTalkSections } from "@/lib/talk-sections";
-import { deleteTalkByApi, updateTalkByApi } from "@/lib/talk-portal-api";
+import { deleteTalkByApi, publishScriptActivityHighlightByApi, updateTalkByApi } from "@/lib/talk-portal-api";
 import { type NodeKind, type Talk, type TalkBranchGuide, type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
 
 interface TalkEditorPageClientProps {
@@ -277,6 +277,25 @@ function createNodeDraft(talk: Talk, sectionId: string): TalkNode {
     tips: [],
     nextNodeIds: [],
   };
+}
+
+function toErrorMessage(caught: unknown) {
+  if (caught instanceof Error) {
+    return caught.message;
+  }
+
+  return String(caught);
+}
+
+function formatUserLabel(name: string | undefined, email: string | undefined) {
+  const normalizedName = String(name ?? "").trim();
+  const normalizedEmail = String(email ?? "").trim();
+
+  if (normalizedName && normalizedEmail) {
+    return `${normalizedName} (${normalizedEmail})`;
+  }
+
+  return normalizedName || normalizedEmail || "unknown";
 }
 
 export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
@@ -624,16 +643,38 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     try {
       const normalized = normalizeTalkForSave(draftTalk);
       const result = await updateTalkByApi(normalized);
+      let notificationError: string | null = null;
+
+      try {
+        await publishScriptActivityHighlightByApi({
+          action: "edited",
+          talkId: normalized.id,
+          talkTitle: normalized.title,
+          actorEmail: formatUserLabel(data.user?.name, data.user?.email),
+        });
+      } catch (caught) {
+        notificationError = toErrorMessage(caught);
+      }
+
+      const saveBaseMessage = result.revision
+        ? `保存しました（revision: ${result.revision}, transport: ${result.transport}）`
+        : `保存しました（transport: ${result.transport}）`;
+
       setSaveMessage(
-        result.revision
-          ? `保存しました（revision: ${result.revision}, transport: ${result.transport}）`
-          : `保存しました（transport: ${result.transport}）`,
+        notificationError
+          ? `${saveBaseMessage}（通知の反映に失敗しました）`
+          : `${saveBaseMessage}（ホームの重要情報に通知しました）`,
       );
+
+      if (notificationError) {
+        setSaveError(`保存は完了しましたが、通知の反映に失敗しました: ${notificationError}`);
+      }
+
       setDraftTalk(normalized);
       setIsDirty(false);
       await reload();
     } catch (caught) {
-      setSaveError(String(caught));
+      setSaveError(toErrorMessage(caught));
     } finally {
       setIsSaving(false);
     }
@@ -658,7 +699,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
       await reload();
       router.replace("/talks");
     } catch (caught) {
-      setSaveError(String(caught));
+      setSaveError(toErrorMessage(caught));
     } finally {
       setIsDeleting(false);
     }
@@ -691,7 +732,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
             </h1>
             <p className="text-sm text-muted-foreground">{draftTalk.title}</p>
           </div>
-          <Badge variant="secondary">編集者: {data.user.email ?? "unknown"}</Badge>
+          <Badge variant="secondary">編集者: {formatUserLabel(data.user?.name, data.user?.email)}</Badge>
         </div>
       </div>
 

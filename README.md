@@ -133,6 +133,7 @@ updated_by
 
 - トーク詳細ページで `canEdit=true` のユーザーにのみ「編集」ボタンを表示
 - 編集ページは `/talks/[id]/edit` で、JSON編集後に保存すると `doPost(action=updateTalk)` で反映
+- ホームページではログインユーザー本人が表示名を更新可能（`doPost(action=updateMyDisplayName)`）
 
 ### 権限管理（admin専用タブ）
 
@@ -142,8 +143,10 @@ updated_by
 - `Editors` シートは少なくとも以下の列を持つことを推奨
 
 ```text
-email, can_edit, is_active, is_admin, updated_at, updated_by
+email, name, can_edit, is_active, is_admin, updated_at, updated_by
 ```
+
+- `name` を設定すると、管理画面のメンバー表示やランキングでメールアドレスの代わりに表示名を優先表示
 
 - `is_admin=true` かつ `is_active=true` のユーザーのみ管理ページへアクセス可能
 

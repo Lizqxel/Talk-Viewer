@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const defaultFormState = {
+  name: "",
   email: "",
   canEdit: true,
   isActive: true,
@@ -41,6 +42,7 @@ type MemberClosingState = {
 
 type MemberClosingRow = {
   email: string;
+  name?: string;
   canEdit: boolean;
   isActive: boolean;
   isAdmin: boolean;
@@ -87,6 +89,11 @@ function formatLastClosingAt(value: string | null) {
     hour12: false,
     timeZone: "Asia/Tokyo",
   });
+}
+
+function formatMemberLabel(name: string | undefined, email: string) {
+  const normalizedName = String(name ?? "").trim();
+  return normalizedName ? `${normalizedName} (${email})` : email;
 }
 
 function rankBadgeClassName(rank: ClosingRank) {
@@ -154,6 +161,7 @@ export function ScriptPermissionsPageClient() {
 
     for (const item of permissions) {
       const normalizedEmail = normalizeEmail(item.email);
+      const normalizedName = String(item.name ?? "").trim();
       if (!normalizedEmail || seenEmails.has(normalizedEmail)) {
         continue;
       }
@@ -162,6 +170,7 @@ export function ScriptPermissionsPageClient() {
       targets.push({
         ...item,
         email: normalizedEmail,
+        name: normalizedName || undefined,
       });
     }
 
@@ -281,6 +290,7 @@ export function ScriptPermissionsPageClient() {
 
         return {
           email: normalizedEmail,
+          name: target.name,
           canEdit: target.canEdit,
           isActive: target.isActive,
           isAdmin: target.isAdmin,
@@ -308,6 +318,13 @@ export function ScriptPermissionsPageClient() {
 
         if (b.todayClosingCount !== a.todayClosingCount) {
           return b.todayClosingCount - a.todayClosingCount;
+        }
+
+        const aLabel = formatMemberLabel(a.name, a.email);
+        const bLabel = formatMemberLabel(b.name, b.email);
+
+        if (aLabel !== bLabel) {
+          return aLabel.localeCompare(bLabel);
         }
 
         return a.email.localeCompare(b.email);
@@ -374,14 +391,16 @@ export function ScriptPermissionsPageClient() {
     try {
       const result = await upsertScriptEditorPermission({
         email: normalizedFormEmail,
+        name: form.name.trim(),
         canEdit: form.canEdit,
         isActive: form.isActive,
         isAdmin: form.isAdmin,
       });
 
-      setSaveMessage(`${result.email} の権限を更新しました。`);
+      setSaveMessage(`${formatMemberLabel(result.name, result.email)} の権限を更新しました。`);
       setEditingEmail(result.email);
       setForm({
+        name: result.name ?? "",
         email: result.email,
         canEdit: result.canEdit,
         isActive: result.isActive,
@@ -399,6 +418,7 @@ export function ScriptPermissionsPageClient() {
   const startEdit = (item: ScriptEditorPermission) => {
     setEditingEmail(item.email);
     setForm({
+      name: item.name ?? "",
       email: item.email,
       canEdit: item.canEdit,
       isActive: item.isActive,
@@ -484,7 +504,7 @@ export function ScriptPermissionsPageClient() {
           スクリプト編集権限管理
         </h1>
         <p className="text-sm text-muted-foreground">admin ユーザーのみ、Editors シートの編集権限を付与・更新できます。</p>
-        <p className="text-xs text-muted-foreground">実行ユーザー: {data.user.email ?? "unknown"}</p>
+        <p className="text-xs text-muted-foreground">実行ユーザー: {formatMemberLabel(data.user?.name, data.user.email ?? "unknown")}</p>
       </div>
 
       <Card className="border-border/80 bg-gradient-to-br from-emerald-50/70 via-background to-sky-50/60">
@@ -552,7 +572,7 @@ export function ScriptPermissionsPageClient() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {topPerformers.map((item, index) => (
                   <Badge key={item.email} variant="secondary" className="border border-border/60 bg-background px-2.5 py-1 text-xs">
-                    #{index + 1} {item.email} / {formatPoint(item.todayAcquiredPt)}
+                    #{index + 1} {formatMemberLabel(item.name, item.email)} / {formatPoint(item.todayAcquiredPt)}
                   </Badge>
                 ))}
               </div>
@@ -576,7 +596,8 @@ export function ScriptPermissionsPageClient() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 space-y-1">
-                      <p className="truncate text-sm font-semibold text-foreground">{item.email}</p>
+                      <p className="truncate text-sm font-semibold text-foreground">{item.name ?? item.email}</p>
+                      {item.name ? <p className="truncate text-[11px] text-muted-foreground">{item.email}</p> : null}
                       <p className="text-xs text-muted-foreground">
                         {[item.isCurrentUser ? "あなた" : null, item.isAdmin ? "管理者" : item.canEdit ? "編集者" : "閲覧者", item.isActive ? "有効" : "無効"]
                           .filter((value): value is string => Boolean(value))
@@ -635,12 +656,33 @@ export function ScriptPermissionsPageClient() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <UserRoundPlus className="size-4 text-primary" aria-hidden="true" />
-            {editingEmail ? `権限編集: ${editingEmail}` : "権限を付与する"}
+            {editingEmail
+              ? `権限編集: ${formatMemberLabel(
+                permissions.find((item) => item.email === editingEmail)?.name,
+                editingEmail,
+              )}`
+              : "権限を付与する"}
           </CardTitle>
-          <CardDescription>email / can_edit / is_active / is_admin を更新します。存在しないメールは新規追加されます。</CardDescription>
+          <CardDescription>name / email / can_edit / is_active / is_admin を更新します。存在しないメールは新規追加されます。</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+            <div className="space-y-1.5">
+              <label htmlFor="editor-name" className="text-xs font-medium text-muted-foreground">
+                表示名
+              </label>
+              <Input
+                id="editor-name"
+                type="text"
+                value={form.name}
+                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder="例: 山田 太郎"
+                disabled={isSaving || Boolean(deletingEmail)}
+                className="max-w-md"
+              />
+              <p className="text-[11px] text-muted-foreground">未入力の場合はメールアドレスを表示します。</p>
+            </div>
+
             <div className="space-y-1.5">
               <label htmlFor="editor-email" className="text-xs font-medium text-muted-foreground">
                 メールアドレス
@@ -744,6 +786,7 @@ export function ScriptPermissionsPageClient() {
             <table className="min-w-full divide-y divide-border text-sm">
               <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
+                  <th className="px-3 py-2 font-medium">名前</th>
                   <th className="px-3 py-2 font-medium">email</th>
                   <th className="px-3 py-2 font-medium">編集</th>
                   <th className="px-3 py-2 font-medium">有効</th>
@@ -756,13 +799,14 @@ export function ScriptPermissionsPageClient() {
               <tbody className="divide-y divide-border/70">
                 {permissions.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-5 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-5 text-center text-muted-foreground">
                       {isFetching ? "取得中..." : "対象データがありません"}
                     </td>
                   </tr>
                 ) : (
                   permissions.map((item) => (
                     <tr key={item.email}>
+                      <td className="px-3 py-2 text-xs text-foreground">{item.name?.trim() || "-"}</td>
                       <td className="px-3 py-2 font-mono text-xs text-foreground">{item.email}</td>
                       <td className="px-3 py-2">
                         <Badge variant={item.canEdit ? "secondary" : "outline"}>{item.canEdit ? "TRUE" : "FALSE"}</Badge>

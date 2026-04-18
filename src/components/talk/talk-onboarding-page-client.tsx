@@ -25,7 +25,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { updateTalkByApi } from "@/lib/talk-portal-api";
+import { publishScriptActivityHighlightByApi, updateTalkByApi } from "@/lib/talk-portal-api";
 import {
   type Talk,
   type TalkDifficulty,
@@ -70,6 +70,17 @@ function toErrorMessage(caught: unknown) {
   }
 
   return String(caught);
+}
+
+function formatUserLabel(name: string | undefined, email: string | undefined) {
+  const normalizedName = String(name ?? "").trim();
+  const normalizedEmail = String(email ?? "").trim();
+
+  if (normalizedName && normalizedEmail) {
+    return `${normalizedName} (${normalizedEmail})`;
+  }
+
+  return normalizedName || normalizedEmail || "unknown";
 }
 
 function buildTalkEditorHref(talkId: string) {
@@ -264,12 +275,34 @@ export function TalkOnboardingPageClient() {
 
     try {
       const result = await updateTalkByApi(nextTalk);
+      let notificationError: string | null = null;
+
+      try {
+        await publishScriptActivityHighlightByApi({
+          action: "created",
+          talkId: nextTalk.id,
+          talkTitle: nextTalk.title,
+          actorEmail: formatUserLabel(data.user?.name, data.user?.email),
+        });
+      } catch (caught) {
+        notificationError = toErrorMessage(caught);
+      }
+
+      const saveBaseMessage = result.revision
+        ? `導入しました（revision: ${result.revision}, transport: ${result.transport}）`
+        : `導入しました（transport: ${result.transport}）`;
+
       setCreatedTalkId(nextTalk.id);
       setSaveMessage(
-        result.revision
-          ? `導入しました（revision: ${result.revision}, transport: ${result.transport}）`
-          : `導入しました（transport: ${result.transport}）`,
+        notificationError
+          ? `${saveBaseMessage}（通知の反映に失敗しました）`
+          : `${saveBaseMessage}（ホームの重要情報に通知しました）`,
       );
+
+      if (notificationError) {
+        setSaveError(`導入は完了しましたが、通知の反映に失敗しました: ${notificationError}`);
+      }
+
       await reload();
     } catch (caught) {
       setSaveError(toErrorMessage(caught));
@@ -299,7 +332,7 @@ export function TalkOnboardingPageClient() {
               必要項目のみ入力して導入します。ノード構成は編集画面で設定してください。
             </p>
           </div>
-          <Badge variant="secondary">編集者: {data.user?.email ?? "unknown"}</Badge>
+          <Badge variant="secondary">編集者: {formatUserLabel(data.user?.name, data.user?.email)}</Badge>
         </div>
       </div>
 
