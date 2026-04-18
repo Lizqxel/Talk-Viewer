@@ -69,6 +69,9 @@ export default function HomePage() {
               <CardContent className="flex-1 space-y-3">
                 {featuredTalkCards.map((item, index) => {
                   const rank = String(index + 1).padStart(2, "0");
+                  const sceneLabel = String(
+                    data.sceneLabels[item.talk.scene] ?? item.talk.scene,
+                  ).trim();
                   return (
                     <Link
                       key={item.id}
@@ -85,9 +88,11 @@ export default function HomePage() {
                           <Badge variant="outline" className="border-zinc-900/20 bg-muted/30">
                             {data.productLabels[item.talk.product] ?? item.talk.product}
                           </Badge>
-                          <Badge variant="outline" className="border-zinc-900/20 bg-muted/30">
-                            {data.sceneLabels[item.talk.scene] ?? item.talk.scene}
-                          </Badge>
+                          {sceneLabel ? (
+                            <Badge variant="outline" className="border-zinc-900/20 bg-muted/30">
+                              {sceneLabel}
+                            </Badge>
+                          ) : null}
                         </div>
                       </div>
                     </Link>

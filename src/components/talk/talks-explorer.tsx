@@ -35,6 +35,11 @@ type ViewMode = "card" | "list";
 
 const difficultyOptions: TalkDifficulty[] = ["初級", "中級", "上級"];
 
+function toOptionalLabel(value: string | undefined | null) {
+  const normalized = String(value ?? "").trim();
+  return normalized ? normalized : null;
+}
+
 export function TalksExplorer({
   talks,
   categories,
@@ -300,7 +305,8 @@ export function TalksExplorer({
                   <TalkCard
                     talk={talk}
                     productLabel={productLabels[talk.product] ?? talk.product}
-                    sceneLabel={sceneLabels[talk.scene] ?? talk.scene}
+                    sceneLabel={toOptionalLabel(sceneLabels[talk.scene] ?? talk.scene)}
+                    difficultyLabel={toOptionalLabel(talk.difficulty)}
                     canEdit={canEdit}
                   />
                 </motion.div>
@@ -319,7 +325,8 @@ export function TalksExplorer({
                   <TalkListItem
                     talk={talk}
                     productLabel={productLabels[talk.product] ?? talk.product}
-                    sceneLabel={sceneLabels[talk.scene] ?? talk.scene}
+                    sceneLabel={toOptionalLabel(sceneLabels[talk.scene] ?? talk.scene)}
+                    difficultyLabel={toOptionalLabel(talk.difficulty)}
                     canEdit={canEdit}
                   />
                 </motion.div>
@@ -369,11 +376,13 @@ function TalkCard({
   talk,
   productLabel,
   sceneLabel,
+  difficultyLabel,
   canEdit,
 }: {
   talk: Talk;
   productLabel: string;
-  sceneLabel: string;
+  sceneLabel: string | null;
+  difficultyLabel: string | null;
   canEdit: boolean;
 }) {
   return (
@@ -388,8 +397,8 @@ function TalkCard({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant="outline">{sceneLabel}</Badge>
-          <Badge variant="outline">{talk.difficulty}</Badge>
+          {sceneLabel ? <Badge variant="outline">{sceneLabel}</Badge> : null}
+          {difficultyLabel ? <Badge variant="outline">{difficultyLabel}</Badge> : null}
           {talk.tags.slice(0, 2).map((tag) => (
             <Badge key={tag} variant="outline">
               {tag}
@@ -427,11 +436,13 @@ function TalkListItem({
   talk,
   productLabel,
   sceneLabel,
+  difficultyLabel,
   canEdit,
 }: {
   talk: Talk;
   productLabel: string;
-  sceneLabel: string;
+  sceneLabel: string | null;
+  difficultyLabel: string | null;
   canEdit: boolean;
 }) {
   return (
@@ -443,8 +454,8 @@ function TalkListItem({
             <p className="text-sm text-muted-foreground">{talk.summary}</p>
             <div className="flex flex-wrap gap-1.5">
               <Badge variant="secondary">{productLabel}</Badge>
-              <Badge variant="outline">{sceneLabel}</Badge>
-              <Badge variant="outline">{talk.difficulty}</Badge>
+              {sceneLabel ? <Badge variant="outline">{sceneLabel}</Badge> : null}
+              {difficultyLabel ? <Badge variant="outline">{difficultyLabel}</Badge> : null}
             </div>
           </div>
           <div className="flex flex-col items-start gap-2 md:items-end">
