@@ -43,6 +43,7 @@ export const HIKARI_SCRIPT_SECTION_DEFS = [
       "hikari-hojin-next-steps",
       "hikari-hojin-double-check",
       "hikari-next-steps",
+      "hikari-family-consent",
       "hikari-contact",
       "hikari-double-check",
     ],
@@ -153,4 +154,59 @@ export function createSectionDefsFromTalk(talk: Talk): TalkSectionDef[] {
     title: section.title,
     nodeIds: section.nodes.map((node) => node.id),
   }));
+}
+
+function moveNodeIdBetweenSections(
+  sectionDefs: TalkSectionDef[],
+  nodeId: string,
+  targetSectionId: string,
+  preferredAfterNodeId?: string,
+) {
+  const nextSectionDefs = sectionDefs.map((section) => ({
+    ...section,
+    nodeIds: section.nodeIds.filter((id) => id !== nodeId),
+  }));
+
+  const targetIndex = nextSectionDefs.findIndex((section) => section.id === targetSectionId);
+  if (targetIndex < 0) {
+    return sectionDefs;
+  }
+
+  const targetNodeIds = [...nextSectionDefs[targetIndex].nodeIds];
+  let insertIndex = targetNodeIds.length;
+
+  if (preferredAfterNodeId) {
+    const anchorIndex = targetNodeIds.indexOf(preferredAfterNodeId);
+    if (anchorIndex >= 0) {
+      insertIndex = anchorIndex + 1;
+    }
+  }
+
+  targetNodeIds.splice(insertIndex, 0, nodeId);
+  nextSectionDefs[targetIndex] = {
+    ...nextSectionDefs[targetIndex],
+    nodeIds: targetNodeIds,
+  };
+
+  return nextSectionDefs;
+}
+
+export function realignKnownSectionDefs(talk: Talk): Talk {
+  if ((talk.sectionDefs?.length ?? 0) === 0) {
+    return talk;
+  }
+
+  if (talk.id === "hikari-kojin-standard") {
+    return {
+      ...talk,
+      sectionDefs: moveNodeIdBetweenSections(
+        talk.sectionDefs!,
+        "hikari-family-consent",
+        "closing",
+        "hikari-next-steps",
+      ),
+    };
+  }
+
+  return talk;
 }

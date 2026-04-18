@@ -427,11 +427,21 @@ function normalizeTalkListForBranchGuides(talks: Talk[]): Talk[] {
       const scriptLines = getNodeScriptLines(node);
       const maxAfterLine = scriptLines.length;
 
-      const normalizedStructuredGuides = (node.branchGuides ?? []).map((guide) => ({
-        afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
-        trigger: String(guide.trigger ?? ""),
-        action: String(guide.action ?? ""),
-      }));
+      const normalizedStructuredGuides = (node.branchGuides ?? []).map((guide) => {
+        const normalizedChildren = (guide.children ?? [])
+          .map((child) => ({
+            trigger: String(child.trigger ?? ""),
+            action: String(child.action ?? ""),
+          }))
+          .filter((child) => child.trigger.trim() || child.action.trim());
+
+        return {
+          afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
+          trigger: String(guide.trigger ?? ""),
+          action: String(guide.action ?? ""),
+          children: normalizedChildren.length > 0 ? normalizedChildren : undefined,
+        };
+      });
 
       const legacyGuides = (node.inlineNotes ?? [])
         .filter((note) => note.tone === "branch")

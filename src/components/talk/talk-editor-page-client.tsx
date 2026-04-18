@@ -11,19 +11,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createSectionDefsFromTalk, deriveTalkSections } from "@/lib/talk-sections";
+import { createSectionDefsFromTalk, deriveTalkSections, realignKnownSectionDefs } from "@/lib/talk-sections";
 import { deleteTalkByApi, publishScriptActivityHighlightByApi, updateTalkByApi } from "@/lib/talk-portal-api";
-import { type NodeKind, type Talk, type TalkBranchGuide, type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
+import { type NodeKind, type Talk, type TalkBranchGuide, type TalkBranchGuideChild, type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
 
 interface TalkEditorPageClientProps {
   talkId: string;
 }
+
+type BranchGuideChildDraft = {
+  id: string;
+  trigger: string;
+  action: string;
+};
 
 type BranchGuideDraft = {
   id: string;
   afterLine: number;
   trigger: string;
   action: string;
+  children: BranchGuideChildDraft[];
 };
 
 type OutReplyDraft = TalkOutReply & {
@@ -69,6 +76,11 @@ function extractBranchGuides(node: TalkNode): BranchGuideDraft[] {
       afterLine: guide.afterLine,
       trigger: guide.trigger,
       action: guide.action,
+      children: (guide.children ?? []).map((child, childIndex) => ({
+        id: `${node.id}-guide-${index}-child-${childIndex}`,
+        trigger: child.trigger,
+        action: child.action,
+      })),
     }));
   }
 
@@ -88,6 +100,7 @@ function extractBranchGuides(node: TalkNode): BranchGuideDraft[] {
         afterLine: note.afterLine,
         trigger: parsed.trigger,
         action: parsed.action,
+        children: [],
       };
     })
     .filter((guide): guide is BranchGuideDraft => Boolean(guide));
@@ -153,7 +166,11 @@ function normalizeTalkForSave(talk: Talk): Talk {
 
 function hasIncompleteBranchGuide(talk: Talk) {
   return talk.nodes.some((node) =>
-    (node.branchGuides ?? []).some((guide) => !guide.trigger.trim() || !guide.action.trim()),
+    (node.branchGuides ?? []).some((guide) =>
+      !guide.trigger.trim() ||
+      !guide.action.trim() ||
+      (guide.children ?? []).some((child) => !child.trigger.trim() || !child.action.trim()),
+    ),
   );
 }
 
@@ -319,11 +336,12 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     }
 
     const cloned = cloneTalk(talk);
-    if ((cloned.sectionDefs?.length ?? 0) === 0) {
-      cloned.sectionDefs = createSectionDefsFromTalk(cloned);
+    const aligned = realignKnownSectionDefs(cloned);
+    if ((aligned.sectionDefs?.length ?? 0) === 0) {
+      aligned.sectionDefs = createSectionDefsFromTalk(aligned);
     }
 
-    setDraftTalk(cloned);
+    setDraftTalk(aligned);
   }, [talk, isDirty]);
 
   const sections = useMemo(() => {
@@ -381,11 +399,22 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     const currentGuides = extractBranchGuides(node);
     const nextGuides = updater(currentGuides);
     const maxAfterLine = getScriptLines(node).length;
-    const normalizedGuides: TalkBranchGuide[] = nextGuides.map((guide) => ({
-      afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
-      trigger: guide.trigger,
-      action: guide.action,
-    }));
+    const normalizedGuides: TalkBranchGuide[] = nextGuides.map((guide) => {
+      const children = guide.children ?? [];
+
+      return {
+        afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
+        trigger: guide.trigger,
+        action: guide.action,
+        children:
+          children.length > 0
+            ? children.map((child): TalkBranchGuideChild => ({
+                trigger: child.trigger,
+                action: child.action,
+              }))
+            : undefined,
+      };
+    });
 
     mutateNode(node.id, (currentNode) => ({
       ...currentNode,
@@ -910,6 +939,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                           afterLine: defaultAfterLine,
                           trigger: "",
                           action: "",
+                          children: [],
                         },
                       ]);
                     }}
@@ -1045,6 +1075,158 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                             }}
                             className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
                           />
+                          <div className="space-y-2 rounded-md border border-dashed border-border/70 p-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">2段目分岐</p>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="xs"
+                                onClick={() => {
+                                  updateGuides(selectedNode, (guides) =>
+                                    guides.map((item, index) =>
+                                      index === guideIndex
+                                        ? {
+                                            ...item,
+                                            children: [
+                                              ...item.children,
+                                              {
+                                                id: `${item.id}-child-${Date.now()}`,
+                                                trigger: "",
+                                                action: "",
+                                              },
+                                            ],
+                                          }
+                                        : item,
+                                    ),
+                                  );
+                                }}
+                              >
+                                子分岐を追加
+                              </Button>
+                            </div>
+
+                            {guide.children.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">2段目分岐はまだありません。</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {guide.children.map((child, childIndex) => (
+                                  <div key={child.id} className="space-y-2 rounded-md border border-border/60 bg-background/80 p-2">
+                                    <Input
+                                      value={child.trigger}
+                                      placeholder="2段目の相手の反応ラベル"
+                                      onChange={(event) => {
+                                        const nextValue = event.target.value;
+                                        updateGuides(selectedNode, (guides) =>
+                                          guides.map((item, index) =>
+                                            index === guideIndex
+                                              ? {
+                                                  ...item,
+                                                  children: item.children.map((childItem, index2) =>
+                                                    index2 === childIndex
+                                                      ? {
+                                                          ...childItem,
+                                                          trigger: nextValue,
+                                                        }
+                                                      : childItem,
+                                                  ),
+                                                }
+                                              : item,
+                                          ),
+                                        );
+                                      }}
+                                    />
+                                    <textarea
+                                      value={child.action}
+                                      placeholder="2段目の返しトーク"
+                                      onChange={(event) => {
+                                        const nextValue = event.target.value;
+                                        updateGuides(selectedNode, (guides) =>
+                                          guides.map((item, index) =>
+                                            index === guideIndex
+                                              ? {
+                                                  ...item,
+                                                  children: item.children.map((childItem, index2) =>
+                                                    index2 === childIndex
+                                                      ? {
+                                                          ...childItem,
+                                                          action: nextValue,
+                                                        }
+                                                      : childItem,
+                                                  ),
+                                                }
+                                              : item,
+                                          ),
+                                        );
+                                      }}
+                                      className="min-h-16 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="xs"
+                                        disabled={childIndex === 0}
+                                        onClick={() => {
+                                          updateGuides(selectedNode, (guides) =>
+                                            guides.map((item, index) =>
+                                              index === guideIndex
+                                                ? {
+                                                    ...item,
+                                                    children: arrayMove(item.children, childIndex, childIndex - 1),
+                                                  }
+                                                : item,
+                                            ),
+                                          );
+                                        }}
+                                      >
+                                        上へ
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="xs"
+                                        disabled={childIndex === guide.children.length - 1}
+                                        onClick={() => {
+                                          updateGuides(selectedNode, (guides) =>
+                                            guides.map((item, index) =>
+                                              index === guideIndex
+                                                ? {
+                                                    ...item,
+                                                    children: arrayMove(item.children, childIndex, childIndex + 1),
+                                                  }
+                                                : item,
+                                            ),
+                                          );
+                                        }}
+                                      >
+                                        下へ
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="xs"
+                                        onClick={() => {
+                                          updateGuides(selectedNode, (guides) =>
+                                            guides.map((item, index) =>
+                                              index === guideIndex
+                                                ? {
+                                                    ...item,
+                                                    children: item.children.filter((_, index2) => index2 !== childIndex),
+                                                  }
+                                                : item,
+                                            ),
+                                          );
+                                        }}
+                                      >
+                                        削除
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                           <div className="flex justify-end gap-2">
                             <Button
                               type="button"

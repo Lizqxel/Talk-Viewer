@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -72,6 +72,7 @@ function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
     .map((guide) => ({
       trigger: guide.trigger,
       action: guide.action,
+      children: guide.children,
     }));
 
   if (structuredGuides.length > 0) {
@@ -81,7 +82,11 @@ function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
   return (node.inlineNotes ?? [])
     .filter((note) => note.afterLine === lineNumber && note.tone === "branch")
     .map((note) => tryParseArrowNote(note.text))
-    .filter((note): note is { trigger: string; action: string } => Boolean(note));
+    .filter((note): note is { trigger: string; action: string } => Boolean(note))
+    .map((note) => ({
+      ...note,
+      children: undefined,
+    }));
 }
 
 function BranchGuideInline({
@@ -89,11 +94,19 @@ function BranchGuideInline({
   openIndex,
   onToggle,
 }: {
-  entries: { trigger: string; action: string }[];
+  entries: { trigger: string; action: string; children?: { trigger: string; action: string }[] }[];
   openIndex: number | null;
   onToggle: (index: number) => void;
 }) {
   const openEntry = typeof openIndex === "number" ? entries[openIndex] : null;
+  const [openChildIndex, setOpenChildIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    setOpenChildIndex(null);
+  }, [openIndex]);
+
+  const childEntries = openEntry?.children ?? [];
+  const openChildEntry = typeof openChildIndex === "number" ? childEntries[openChildIndex] : null;
 
   return (
     <div className={inlineToneClass("branch")}>
@@ -126,10 +139,46 @@ function BranchGuideInline({
         </div>
 
         {openEntry ? (
-          <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
-            <p className="text-[11px] font-semibold text-primary/80">② 返しトーク</p>
-            <p className="text-sm leading-6 text-foreground">{openEntry.action}</p>
-          </div>
+          <>
+            <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
+              <p className="text-[11px] font-semibold text-primary/80">② 返しトーク</p>
+              <p className="text-sm leading-6 text-foreground">{openEntry.action}</p>
+            </div>
+
+            {childEntries.length > 0 ? (
+              <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
+                <p className="text-[11px] font-semibold text-primary/80">③ 追加の反応</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {childEntries.map((entry, index) => {
+                    const isOpen = openChildIndex === index;
+
+                    return (
+                      <button
+                        key={`${entry.trigger}-child-${index}`}
+                        type="button"
+                        onClick={() => setOpenChildIndex((current) => (current === index ? null : index))}
+                        aria-expanded={isOpen}
+                        className={`rounded border px-2 py-1 text-sm leading-6 transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
+                          isOpen
+                            ? "border-primary/60 bg-primary/15 text-primary"
+                            : "border-primary/30 bg-background/70 text-foreground hover:bg-primary/8"
+                        }`}
+                      >
+                        {entry.trigger}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {openChildEntry ? (
+              <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
+                <p className="text-[11px] font-semibold text-primary/80">④ 返しトーク</p>
+                <p className="text-sm leading-6 text-foreground">{openChildEntry.action}</p>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
     </div>
