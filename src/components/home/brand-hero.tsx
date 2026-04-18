@@ -1,11 +1,43 @@
+"use client";
+
 import Link from "next/link";
-import { ArrowRight, BellRing } from "lucide-react";
+import { ArrowRight, BellRing, ExternalLink } from "lucide-react";
+import { useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { type DailyHighlight } from "@/types/talk";
 
-export function BrandHero() {
+interface BrandHeroProps {
+  dailyHighlights: DailyHighlight[];
+  canEditImportantInfo: boolean;
+}
+
+const FALLBACK_IMPORTANT_HIGHLIGHT: DailyHighlight = {
+  id: "highlight-important-default",
+  title: "本日の重要情報",
+  detail: "ここには本日の重要情報が入ります",
+};
+
+export function BrandHero({ dailyHighlights, canEditImportantInfo }: BrandHeroProps) {
+  const resolvedHighlights = useMemo(() => {
+    const list = dailyHighlights
+      .map((item) => {
+        return {
+          id: item.id,
+          title: item.title.trim(),
+          detail: item.detail.trim(),
+        };
+      })
+      .filter((item) => item.title.length > 0 && item.detail.length > 0);
+
+    return list.length > 0 ? list : [FALLBACK_IMPORTANT_HIGHLIGHT];
+  }, [dailyHighlights]);
+
+  const shouldScrollable = resolvedHighlights.length >= 4;
+
   return (
     <section className="home-hero-frame relative min-h-[88vh] overflow-hidden rounded-3xl border border-zinc-900/15 xl:min-h-[92vh]">
       <div className="home-hero-base absolute inset-0" aria-hidden="true" />
@@ -66,12 +98,38 @@ export function BrandHero() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 pt-4">
-              <div className="rounded-lg border border-primary/35 bg-primary/14 px-3 py-2.5">
-                <p className="text-sm font-semibold text-zinc-900">ここには本日の重要情報が入ります</p>
+              <div className={cn("space-y-2", shouldScrollable ? "max-h-64 overflow-y-auto pr-1" : null)}>
+                {resolvedHighlights.map((item, index) => {
+                  return (
+                    <div
+                      key={item.id || `home-highlight-${index}`}
+                      className={cn(
+                        "rounded-lg px-3 py-2.5",
+                        index === 0
+                          ? "border border-primary/35 bg-primary/14"
+                          : "border border-zinc-900/12 bg-white/80",
+                      )}
+                    >
+                      <p className="text-xs font-semibold tracking-[0.08em] text-zinc-700 uppercase">{item.title}</p>
+                      <p className="mt-1.5 text-sm font-semibold text-zinc-900">{item.detail}</p>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="rounded-lg border border-zinc-900/12 bg-white/80 px-3 py-2.5">
-                <p className="text-sm font-semibold text-zinc-900">ここにはハイライト情報が入ります</p>
-              </div>
+
+              {shouldScrollable ? <p className="text-[11px] text-zinc-600">件数が多いため、カード内をスクロールして確認できます。</p> : null}
+
+              {canEditImportantInfo ? (
+                <div className="rounded-lg border border-zinc-900/12 bg-white/80 px-3 py-2.5">
+                  <p className="text-xs leading-relaxed text-zinc-700">編集は左サイドバーの「重要情報管理」タブから行えます。</p>
+                  <Button asChild size="sm" variant="outline" className="mt-2 h-8 border-zinc-900/30 bg-white text-zinc-900 hover:bg-zinc-50">
+                    <Link href="/admin/highlights" className="inline-flex items-center gap-1.5">
+                      重要情報管理へ
+                      <ExternalLink className="size-3.5" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </div>

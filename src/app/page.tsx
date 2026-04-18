@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 export default function HomePage() {
   const { data, error, isLoading, isFallback, reload } = useTalkBootstrapContext();
+  const canEditImportantInfo = Boolean(data?.user?.canEdit || data?.user?.isAdmin);
 
   const featuredTalkCards = useMemo(() => {
     if (!data) {
@@ -40,7 +41,10 @@ export default function HomePage() {
   return (
     <div className="space-y-8">
       {isFallback ? <ApiFallbackNotice onRetry={() => void reload()} reason={error?.message} /> : null}
-      <BrandHero />
+      <BrandHero
+        dailyHighlights={data.dailyHighlights}
+        canEditImportantInfo={canEditImportantInfo}
+      />
 
       <Reveal>
         <section className="relative -mt-2 overflow-hidden rounded-2xl border border-zinc-900/10 bg-card/75 p-4 backdrop-blur-sm md:p-5">

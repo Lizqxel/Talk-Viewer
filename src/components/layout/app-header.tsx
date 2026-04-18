@@ -21,11 +21,22 @@ const adminMobileNavItem = {
   match: (pathname: string) => pathname.startsWith("/admin/script-permissions"),
 };
 
+const highlightsMobileNavItem = {
+  href: "/admin/highlights",
+  label: "重要情報管理",
+  match: (pathname: string) => pathname.startsWith("/admin/highlights"),
+};
+
 export function AppHeader() {
   const pathname = usePathname();
   const { data, isLoading, error, reload, lastLoadedAt } = useTalkBootstrapContext();
   const [refreshFeedback, setRefreshFeedback] = useState<string | null>(null);
-  const mobileNavItems = data?.user?.isAdmin ? [...baseMobileNavItems, adminMobileNavItem] : baseMobileNavItems;
+  const canEditPortal = Boolean(data?.user?.canEdit || data?.user?.isAdmin);
+  const mobileNavItems = [
+    ...baseMobileNavItems,
+    ...(canEditPortal ? [highlightsMobileNavItem] : []),
+    ...(data?.user?.isAdmin ? [adminMobileNavItem] : []),
+  ];
 
   const handleRefresh = async () => {
     setRefreshFeedback(null);

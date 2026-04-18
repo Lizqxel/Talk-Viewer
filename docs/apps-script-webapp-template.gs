@@ -7,6 +7,7 @@
  * - ALLOWED_EMAILS  (optional, comma-separated emails)
  * - TALKS_SHEET     (default: Talks)
  * - EDITORS_SHEET   (default: Editors)
+ * - HIGHLIGHTS_SHEET (default: DailyHighlights)
  * - AUDIT_SHEET     (default: AuditLog)
  * - CLOSING_SHEET   (default: Closing)
  * - CLOSING_AUDIT_SHEET   (default: ClosingAudit)
@@ -440,6 +441,53 @@ function doPost(e) {
       });
     }
 
+    if (action === "upsertDailyHighlight") {
+      if (!canEdit) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "FORBIDDEN_EDITOR",
+              message: "編集権限がありません",
+            },
+          },
+          403,
+        );
+      }
+
+      var highlight = body.highlight || body.dailyHighlight || body.item;
+      if (!highlight || !highlight.id) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_HIGHLIGHT",
+              message: "highlight.id が必要です",
+            },
+          },
+          400,
+        );
+      }
+
+      var updatedHighlight = upsertDailyHighlight_(highlight, userEmail);
+      appendAudit_("upsertDailyHighlight", "", userEmail, "ok", updatedHighlight.id);
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            highlight: updatedHighlight,
+          },
+        },
+        200,
+      );
+    }
+
     if (action === "deleteTalk") {
       if (!canEdit) {
         return jsonResponse_(
@@ -651,7 +699,7 @@ function doPost(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "updateTalk / deleteTalk / upsertEditorPermission / deleteEditorPermission / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
+              "updateTalk / deleteTalk / upsertEditorPermission / deleteEditorPermission / upsertDailyHighlight / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
           },
         },
         400,
@@ -720,6 +768,7 @@ function doPost(e) {
 
 function buildBootstrapPayload_(userEmail, canEdit, isAdmin) {
   const talks = listTalks_();
+  const dailyHighlights = listDailyHighlights_();
 
   const fallbackProductLabels = {
     hikari: "光回線",
@@ -739,7 +788,7 @@ function buildBootstrapPayload_(userEmail, canEdit, isAdmin) {
 
   return {
     announcements: [],
-    dailyHighlights: [],
+    dailyHighlights: dailyHighlights,
     quickLinks: [],
     featuredItems: talks.slice(0, 3).map(function (talk, index) {
       return {
@@ -769,6 +818,173 @@ function buildBootstrapPayload_(userEmail, canEdit, isAdmin) {
       canEdit: canEdit,
       isAdmin: isAdmin,
     },
+  };
+}
+
+function ensureDailyHighlightsColumns_(sheet) {
+  var values = sheet.getDataRange().getValues();
+  var header = values.length > 0 ? values[0] : [];
+
+  if (header.length === 1 && String(header[0] || "").trim() === "") {
+    header = [];
+  }
+
+  var required = [
+    "id",
+    "title",
+    "detail",
+    "is_active",
+    "sort_order",
+    "updated_at",
+    "updated_by",
+  ];
+
+  var changed = false;
+  for (var i = 0; i < required.length; i += 1) {
+    if (header.indexOf(required[i]) === -1) {
+      header.push(required[i]);
+      changed = true;
+    }
+  }
+
+  if (changed || values.length === 0) {
+    sheet.getRange(1, 1, 1, header.length).setValues([header]);
+  }
+}
+
+function listDailyHighlights_() {
+  var sheet = getSheet_(prop_("HIGHLIGHTS_SHEET", "DailyHighlights"));
+  ensureDailyHighlightsColumns_(sheet);
+
+  var values = sheet.getDataRange().getValues();
+  if (values.length <= 1) {
+    return [];
+  }
+
+  var idx = indexMap_(values[0]);
+  var highlights = [];
+
+  for (var i = 1; i < values.length; i += 1) {
+    var row = values[i];
+    var isActive = parseBoolean_(
+      getRowValueByKeys_(row, idx, ["is_active", "isActive", "有効"]),
+      true,
+    );
+
+    if (!isActive) {
+      continue;
+    }
+
+    var id = String(getRowValueByKeys_(row, idx, ["id", "highlight_id", "highlightId"]) || "").trim();
+    var title = String(getRowValueByKeys_(row, idx, ["title", "見出し"]) || "").trim();
+    var detail = String(getRowValueByKeys_(row, idx, ["detail", "body", "本文"]) || "").trim();
+
+    if (!id || !title || !detail) {
+      continue;
+    }
+
+    var sortOrder = parseNumber_(
+      getRowValueByKeys_(row, idx, ["sort_order", "sortOrder", "並び順"]),
+      9999,
+    );
+
+    highlights.push({
+      id: id,
+      title: title,
+      detail: detail,
+      sortOrder: sortOrder,
+    });
+  }
+
+  highlights.sort(function (a, b) {
+    if (a.sortOrder !== b.sortOrder) {
+      return a.sortOrder - b.sortOrder;
+    }
+
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  return highlights.map(function (item) {
+    return {
+      id: item.id,
+      title: item.title,
+      detail: item.detail,
+    };
+  });
+}
+
+function upsertDailyHighlight_(highlight, actorEmail) {
+  var sheet = getSheet_(prop_("HIGHLIGHTS_SHEET", "DailyHighlights"));
+  ensureDailyHighlightsColumns_(sheet);
+
+  var values = sheet.getDataRange().getValues();
+  if (values.length === 0) {
+    values = [["id", "title", "detail", "is_active", "sort_order", "updated_at", "updated_by"]];
+    sheet.getRange(1, 1, 1, values[0].length).setValues(values);
+  }
+
+  var idx = indexMap_(values[0]);
+  var id = String(highlight.id || highlight.highlightId || highlight.highlight_id || "").trim();
+  if (!id) {
+    throw new Error("highlight.id が必要です");
+  }
+
+  var title = String(highlight.title || "").trim();
+  var detail = String(highlight.detail || highlight.body || "").trim();
+  if (!title || !detail) {
+    throw new Error("highlight.title / highlight.detail が必要です");
+  }
+
+  var isActive = parseBoolean_(highlight.isActive, true);
+
+  var targetRowNumber = -1;
+  var existingSortOrder = "";
+  for (var i = 1; i < values.length; i += 1) {
+    var rowId = String(getRowValueByKeys_(values[i], idx, ["id", "highlight_id", "highlightId"]) || "").trim();
+    if (rowId === id) {
+      targetRowNumber = i + 1;
+      existingSortOrder = getRowValueByKeys_(values[i], idx, ["sort_order", "sortOrder", "並び順"]);
+      break;
+    }
+  }
+
+  var defaultSortOrder =
+    existingSortOrder === "" ? Math.max(1, values.length) : parseNumber_(existingSortOrder, Math.max(1, values.length));
+  var sortOrderCandidate = highlight.sortOrder;
+  if (sortOrderCandidate === undefined || sortOrderCandidate === null || sortOrderCandidate === "") {
+    sortOrderCandidate = defaultSortOrder;
+  }
+  var sortOrder = parseNumber_(sortOrderCandidate, defaultSortOrder);
+
+  var rowLength = values[0].length;
+  var rowValues =
+    targetRowNumber === -1 ? new Array(rowLength).fill("") : values[targetRowNumber - 1].slice();
+
+  while (rowValues.length < rowLength) {
+    rowValues.push("");
+  }
+
+  var now = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM-dd HH:mm:ss");
+  var actor = normalizeEmail_(actorEmail);
+
+  setRowValueIfPresent_(rowValues, idx, ["id", "highlight_id", "highlightId"], id);
+  setRowValueIfPresent_(rowValues, idx, ["title", "見出し"], title);
+  setRowValueIfPresent_(rowValues, idx, ["detail", "body", "本文"], detail);
+  setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], isActive);
+  setRowValueIfPresent_(rowValues, idx, ["sort_order", "sortOrder", "並び順"], sortOrder);
+  setRowValueIfPresent_(rowValues, idx, ["updated_at", "updatedAt", "更新日時"], now);
+  setRowValueIfPresent_(rowValues, idx, ["updated_by", "updatedBy", "更新者"], actor);
+
+  if (targetRowNumber === -1) {
+    sheet.appendRow(rowValues);
+  } else {
+    sheet.getRange(targetRowNumber, 1, 1, rowValues.length).setValues([rowValues]);
+  }
+
+  return {
+    id: id,
+    title: title,
+    detail: detail,
   };
 }
 
@@ -1741,8 +1957,13 @@ function getSheet_(sheetName) {
   if (!sheet) {
     var closingSheetName = prop_("CLOSING_SHEET", "Closing");
     var closingAuditSheetName = prop_("CLOSING_AUDIT_SHEET", "ClosingAudit");
+    var highlightsSheetName = prop_("HIGHLIGHTS_SHEET", "DailyHighlights");
 
-    if (sheetName === closingSheetName || sheetName === closingAuditSheetName) {
+    if (
+      sheetName === closingSheetName ||
+      sheetName === closingAuditSheetName ||
+      sheetName === highlightsSheetName
+    ) {
       sheet = spreadsheet.insertSheet(sheetName);
       return sheet;
     }

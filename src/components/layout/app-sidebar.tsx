@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenText, House, KeyRound, Layers3 } from "lucide-react";
+import { BookOpenText, House, KeyRound, Layers3, NotebookPen } from "lucide-react";
 
 import { AcquiredPointButton } from "@/components/talk/acquired-point-button";
 import { ClosingActionButton } from "@/components/talk/closing-action-button";
@@ -41,6 +41,13 @@ const adminNavigationItem = {
   match: (pathname: string) => pathname.startsWith("/admin/script-permissions"),
 };
 
+const highlightsNavigationItem = {
+  href: "/admin/highlights",
+  label: "重要情報管理",
+  icon: NotebookPen,
+  match: (pathname: string) => pathname.startsWith("/admin/highlights"),
+};
+
 const publicBasePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
 const bbcMarkSrc = `${publicBasePath}/bbc-mark.svg`;
 
@@ -53,9 +60,12 @@ export function AppSidebar() {
     pathSegments.length >= 2 &&
     pathSegments[1] !== "migrate";
   const isCompactTalkSidebar = isTalkDetailPage;
-  const navigationItems = data?.user?.isAdmin
-    ? [...baseNavigationItems, adminNavigationItem]
-    : baseNavigationItems;
+  const canEditPortal = Boolean(data?.user?.canEdit || data?.user?.isAdmin);
+  const navigationItems = [
+    ...baseNavigationItems,
+    ...(canEditPortal ? [highlightsNavigationItem] : []),
+    ...(data?.user?.isAdmin ? [adminNavigationItem] : []),
+  ];
 
   return (
     <aside
