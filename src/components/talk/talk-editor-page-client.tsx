@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageSquarePlus, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageCircleReply, MessageSquarePlus, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { deriveTalkSections } from "@/lib/talk-sections";
 import { deleteTalkByApi, updateTalkByApi } from "@/lib/talk-portal-api";
-import { type Talk, type TalkBranchGuide, type TalkNode } from "@/types/talk";
+import { type Talk, type TalkBranchGuide, type TalkNode, type TalkOutReply } from "@/types/talk";
 
 interface TalkEditorPageClientProps {
   talkId: string;
@@ -24,6 +24,10 @@ type BranchGuideDraft = {
   afterLine: number;
   trigger: string;
   action: string;
+};
+
+type OutReplyDraft = TalkOutReply & {
+  id: string;
 };
 
 function cloneTalk(talk: Talk): Talk {
@@ -165,6 +169,12 @@ function normalizeTalkForSave(talk: Talk): Talk {
 function hasIncompleteBranchGuide(talk: Talk) {
   return talk.nodes.some((node) =>
     (node.branchGuides ?? []).some((guide) => !guide.trigger.trim() || !guide.action.trim()),
+  );
+}
+
+function hasIncompleteOutReply(talk: Talk) {
+  return talk.nodes.some((node) =>
+    (node.outReplies ?? []).some((entry) => !entry.out.trim() || !entry.reply.trim()),
   );
 }
 
@@ -317,6 +327,11 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
       return;
     }
 
+    if (hasIncompleteOutReply(draftTalk)) {
+      setSaveError("アウト返しに未入力があります");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -363,6 +378,11 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   };
 
   const currentGuides = selectedNode ? extractBranchGuides(selectedNode) : [];
+  const currentOutReplies: OutReplyDraft[] = (selectedNode?.outReplies ?? []).map((entry, index) => ({
+    id: `${selectedNode?.id ?? "node"}-out-reply-${index}`,
+    out: entry.out,
+    reply: entry.reply,
+  }));
   const currentPointBlocks = selectedNode?.pointBlocks ?? [];
 
   return (
@@ -449,6 +469,26 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
               </div>
               {selectedNode ? (
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      mutateNode(selectedNode.id, (node) => ({
+                        ...node,
+                        outReplies: [
+                          ...(node.outReplies ?? []),
+                          {
+                            out: "",
+                            reply: "",
+                          },
+                        ],
+                      }));
+                    }}
+                  >
+                    <MessageCircleReply className="size-4" aria-hidden="true" />
+                    アウト返し追加
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -611,6 +651,102 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                               size="xs"
                               onClick={() => {
                                 updateGuides(selectedNode, (guides) => guides.filter((_, index) => index !== guideIndex));
+                              }}
+                            >
+                              削除
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3 rounded-lg border border-border/70 p-3">
+                  <h3 className="text-sm font-semibold">アウト返し</h3>
+                  {currentOutReplies.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">アウト返しはまだありません。ノード右上のアウト返し追加で作成できます。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {currentOutReplies.map((entry, outReplyIndex) => (
+                        <div key={entry.id} className="space-y-2 rounded-md border border-border/60 p-2.5">
+                          <Input
+                            value={entry.out}
+                            placeholder="OUT（お客様の反応）"
+                            onChange={(event) => {
+                              const nextOut = event.target.value;
+                              mutateNode(selectedNode.id, (node) => ({
+                                ...node,
+                                outReplies: (node.outReplies ?? []).map((item, index) =>
+                                  index === outReplyIndex
+                                    ? {
+                                        ...item,
+                                        out: nextOut,
+                                      }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                          />
+
+                          <textarea
+                            value={entry.reply}
+                            placeholder="アウト返し"
+                            onChange={(event) => {
+                              const nextReply = event.target.value;
+                              mutateNode(selectedNode.id, (node) => ({
+                                ...node,
+                                outReplies: (node.outReplies ?? []).map((item, index) =>
+                                  index === outReplyIndex
+                                    ? {
+                                        ...item,
+                                        reply: nextReply,
+                                      }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                            className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                          />
+
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={outReplyIndex === 0}
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  outReplies: arrayMove(node.outReplies ?? [], outReplyIndex, outReplyIndex - 1),
+                                }));
+                              }}
+                            >
+                              上へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              disabled={outReplyIndex === currentOutReplies.length - 1}
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  outReplies: arrayMove(node.outReplies ?? [], outReplyIndex, outReplyIndex + 1),
+                                }));
+                              }}
+                            >
+                              下へ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              onClick={() => {
+                                mutateNode(selectedNode.id, (node) => ({
+                                  ...node,
+                                  outReplies: (node.outReplies ?? []).filter((_, index) => index !== outReplyIndex),
+                                }));
                               }}
                             >
                               削除

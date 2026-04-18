@@ -18,6 +18,7 @@ import {
   type TalkProduct,
   type TalkScene,
 } from "@/types/talk";
+import { DEFAULT_OUT_REPLIES_BY_NODE_ID } from "@/lib/default-out-replies";
 import { MockTalkRepository } from "@/repositories/mock/mock-talk-repository";
 
 export interface TalkPortalUser {
@@ -453,10 +454,22 @@ function normalizeTalkListForPointBlocks(talks: Talk[]): Talk[] {
   }));
 }
 
+function normalizeTalkListForOutReplies(talks: Talk[]): Talk[] {
+  return talks.map((talk) => ({
+    ...talk,
+    nodes: talk.nodes.map((node) => ({
+      ...node,
+      outReplies: node.outReplies ?? DEFAULT_OUT_REPLIES_BY_NODE_ID[node.id],
+    })),
+  }));
+}
+
 function normalizeBootstrap(raw: unknown): TalkBootstrapPayload {
   const payload = resolvePayload(raw) as LooseRecord;
   const talks = pickArray<Talk>(payload, ["talks", "トーク"]);
-  const normalizedTalks = normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(talks));
+  const normalizedTalks = normalizeTalkListForOutReplies(
+    normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(talks)),
+  );
 
   return {
     announcements: pickArray<Announcement>(payload, ["announcements", "アナウンス"]),
@@ -2258,7 +2271,9 @@ export async function getMockBootstrapPayload(): Promise<TalkBootstrapPayload> {
     talkTags: mockTalkTags,
     productLabels: mockProductLabels,
     sceneLabels: mockSceneLabels,
-    talks: normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(mockTalks)),
+    talks: normalizeTalkListForOutReplies(
+      normalizeTalkListForBranchGuides(normalizeTalkListForPointBlocks(mockTalks)),
+    ),
     user: {
       canEdit: false,
       isAdmin: false,

@@ -26,6 +26,11 @@ export interface TalkBranchGuide {
   action: string;
 }
 
+export interface TalkOutReply {
+  out: string;
+  reply: string;
+}
+
 export interface TalkNode {
   id: string;
   title: string;
@@ -38,6 +43,7 @@ export interface TalkNode {
   conditions?: string[];
   doNotRead?: string[];
   branchGuides?: TalkBranchGuide[];
+  outReplies?: TalkOutReply[];
   pointBlocks?: TalkPointBlock[];
   inlineNotes?: {
     afterLine: number;
