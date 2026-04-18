@@ -24,6 +24,17 @@ function getFailureMessage(value: unknown) {
   return String(value);
 }
 
+function formatUserLabel(name: string | undefined, email: string | undefined) {
+  const normalizedName = String(name ?? "").trim();
+  const normalizedEmail = String(email ?? "").trim();
+
+  if (normalizedName && normalizedEmail) {
+    return `${normalizedName} (${normalizedEmail})`;
+  }
+
+  return normalizedName || normalizedEmail || "unknown";
+}
+
 function parseTalkIdsParam(value: string | null) {
   if (!value) {
     return [];
@@ -233,7 +244,7 @@ export function TalkMigrationPageClient() {
           <p className="text-sm text-muted-foreground">
             現在ブランチのモックトーク（{candidateTalks.length}件）を Apps Script doPost 経由で投入します。
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">実行ユーザー: {data.user.email ?? "unknown"}</p>
+          <p className="mt-1 text-xs text-muted-foreground">実行ユーザー: {formatUserLabel(data.user?.name, data.user?.email)}</p>
         </div>
       </div>
 

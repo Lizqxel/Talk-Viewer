@@ -351,6 +351,44 @@ function doPost(e) {
     const action = body.action || "";
     auditAction = action || "unknown";
 
+    if (action === "updateMyDisplayName" || action === "setMyDisplayName") {
+      var nextName = normalizeDisplayName_(
+        body.name || body.displayName || body.display_name || body.userName || body.user_name,
+      );
+
+      if (nextName.length > 60) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_DISPLAY_NAME",
+              message: "表示名は60文字以内で入力してください",
+            },
+          },
+          400,
+        );
+      }
+
+      var profile = upsertOwnDisplayName_(userEmail, nextName, userEmail);
+      appendAudit_("updateMyDisplayName", "", userEmail, "ok", profile.name || "(empty)");
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: {
+            email: userEmail,
+            name: profile.name || undefined,
+            canEdit: canEdit,
+            isAdmin: isAdmin,
+          },
+          data: {
+            profile: profile,
+          },
+        },
+        200,
+      );
+    }
+
     if (action === "upsertEditorPermission") {
       if (!isAdmin) {
         return jsonResponse_(
@@ -699,7 +737,7 @@ function doPost(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "updateTalk / deleteTalk / upsertEditorPermission / deleteEditorPermission / upsertDailyHighlight / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
+              "updateTalk / deleteTalk / upsertEditorPermission / deleteEditorPermission / upsertDailyHighlight / updateMyDisplayName / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
           },
         },
         400,
@@ -769,6 +807,7 @@ function doPost(e) {
 function buildBootstrapPayload_(userEmail, canEdit, isAdmin) {
   const talks = listTalks_();
   const dailyHighlights = listDailyHighlights_();
+  const userName = getEditorDisplayNameByEmail_(userEmail);
 
   const fallbackProductLabels = {
     hikari: "光回線",
@@ -815,6 +854,7 @@ function buildBootstrapPayload_(userEmail, canEdit, isAdmin) {
     talks: talks,
     user: {
       email: userEmail,
+      name: userName || undefined,
       canEdit: canEdit,
       isAdmin: isAdmin,
     },
@@ -1180,6 +1220,10 @@ function normalizeEmail_(email) {
     .trim();
 }
 
+function normalizeDisplayName_(name) {
+  return String(name || "").trim();
+}
+
 function findHeaderIndex_(idx, keys) {
   for (var i = 0; i < keys.length; i += 1) {
     var key = keys[i];
@@ -1265,7 +1309,7 @@ function ensureEditorColumns_(sheet, header) {
     nextHeader = [];
   }
 
-  var requiredColumns = ["email", "can_edit", "is_active", "is_admin", "updated_at", "updated_by"];
+  var requiredColumns = ["email", "name", "can_edit", "is_active", "is_admin", "updated_at", "updated_by"];
   var changed = false;
 
   requiredColumns.forEach(function (columnName) {
@@ -1293,11 +1337,14 @@ function getEditorPermissionMapByEmail_(values) {
   for (var i = 1; i < values.length; i += 1) {
     var row = values[i];
     var email = normalizeEmail_(getRowValueByKeys_(row, idx, ["email", "mail", "メール"]));
+    var name = normalizeDisplayName_(
+      getRowValueByKeys_(row, idx, ["name", "display_name", "displayName", "氏名", "名前"]),
+    );
     if (!email) {
       continue;
     }
 
-    map[email] = {
+    var item = {
       email: email,
       canEdit: parseBoolean_(
         getRowValueByKeys_(row, idx, ["can_edit", "canEdit", "編集可"]),
@@ -1313,9 +1360,28 @@ function getEditorPermissionMapByEmail_(values) {
       ),
       updatedBy: String(getRowValueByKeys_(row, idx, ["updated_by", "updatedBy", "更新者"]) || ""),
     };
+
+    if (name) {
+      item.name = name;
+    }
+
+    map[email] = item;
   }
 
   return map;
+}
+
+function getEditorDisplayNameByEmail_(email) {
+  var normalizedEmail = normalizeEmail_(email);
+  if (!normalizedEmail) {
+    return "";
+  }
+
+  var sheet = getSheet_(prop_("EDITORS_SHEET", "Editors"));
+  var map = getEditorPermissionMapByEmail_(sheet.getDataRange().getValues());
+  var target = map[normalizedEmail];
+
+  return target && target.name ? String(target.name) : "";
 }
 
 function isEditor_(email) {
@@ -1372,6 +1438,10 @@ function upsertEditorPermission_(editor, actorEmail) {
     throw new Error("editor.email が不正です");
   }
 
+  var name = normalizeDisplayName_(
+    editor.name || editor.displayName || editor.display_name || editor.userName || editor.user_name,
+  );
+
   var canEdit = parseBoolean_(editor.canEdit, false);
   var isActive = parseBoolean_(editor.isActive, true);
   var isAdmin = parseBoolean_(editor.isAdmin, false);
@@ -1397,6 +1467,7 @@ function upsertEditorPermission_(editor, actorEmail) {
   var actor = normalizeEmail_(actorEmail);
 
   setRowValueIfPresent_(rowValues, idx, ["email", "mail", "メール"], normalizedEmail);
+  setRowValueIfPresent_(rowValues, idx, ["name", "display_name", "displayName", "氏名", "名前"], name);
   setRowValueIfPresent_(rowValues, idx, ["can_edit", "canEdit", "編集可"], canEdit);
   setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], isActive);
   setRowValueIfPresent_(rowValues, idx, ["is_admin", "isAdmin", "管理者"], isAdmin);
@@ -1412,6 +1483,80 @@ function upsertEditorPermission_(editor, actorEmail) {
 
   return {
     email: normalizedEmail,
+    name: name,
+    canEdit: canEdit,
+    isActive: isActive,
+    isAdmin: isAdmin,
+    updatedAt: now,
+    updatedBy: actor,
+  };
+}
+
+function upsertOwnDisplayName_(email, name, actorEmail) {
+  var sheet = getSheet_(prop_("EDITORS_SHEET", "Editors"));
+  var values = sheet.getDataRange().getValues();
+  var header = ensureEditorColumns_(sheet, values.length > 0 ? values[0] : []);
+
+  values = sheet.getDataRange().getValues();
+  if (values.length === 0) {
+    values = [header];
+    sheet.getRange(1, 1, 1, header.length).setValues([header]);
+  }
+
+  var idx = indexMap_(values[0]);
+  var normalizedEmail = normalizeEmail_(email);
+  if (!normalizedEmail) {
+    throw new Error("ユーザーのメールアドレスを取得できませんでした");
+  }
+
+  var normalizedName = normalizeDisplayName_(name);
+  var targetRowNumber = -1;
+  var canEdit = false;
+  var isActive = true;
+  var isAdmin = false;
+
+  for (var i = 1; i < values.length; i += 1) {
+    var rowEmail = normalizeEmail_(getRowValueByKeys_(values[i], idx, ["email", "mail", "メール"]));
+    if (rowEmail !== normalizedEmail) {
+      continue;
+    }
+
+    targetRowNumber = i + 1;
+    canEdit = parseBoolean_(getRowValueByKeys_(values[i], idx, ["can_edit", "canEdit", "編集可"]), false);
+    isActive = parseBoolean_(getRowValueByKeys_(values[i], idx, ["is_active", "isActive", "有効"]), true);
+    isAdmin = parseAdminByRow_(values[i], idx);
+    break;
+  }
+
+  var rowLength = values[0].length;
+  var rowValues =
+    targetRowNumber === -1 ? new Array(rowLength).fill("") : values[targetRowNumber - 1].slice();
+
+  while (rowValues.length < rowLength) {
+    rowValues.push("");
+  }
+
+  var now = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM-dd HH:mm:ss");
+  var actor = normalizeEmail_(actorEmail);
+
+  setRowValueIfPresent_(rowValues, idx, ["email", "mail", "メール"], normalizedEmail);
+  setRowValueIfPresent_(rowValues, idx, ["name", "display_name", "displayName", "氏名", "名前"], normalizedName);
+  setRowValueIfPresent_(rowValues, idx, ["can_edit", "canEdit", "編集可"], canEdit);
+  setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], isActive);
+  setRowValueIfPresent_(rowValues, idx, ["is_admin", "isAdmin", "管理者"], isAdmin);
+  setRowValueIfPresent_(rowValues, idx, ["role", "権限"], isAdmin ? "admin" : canEdit ? "editor" : "viewer");
+  setRowValueIfPresent_(rowValues, idx, ["updated_at", "updatedAt", "更新日時"], now);
+  setRowValueIfPresent_(rowValues, idx, ["updated_by", "updatedBy", "更新者"], actor);
+
+  if (targetRowNumber === -1) {
+    sheet.appendRow(rowValues);
+  } else {
+    sheet.getRange(targetRowNumber, 1, 1, rowValues.length).setValues([rowValues]);
+  }
+
+  return {
+    email: normalizedEmail,
+    name: normalizedName || undefined,
     canEdit: canEdit,
     isActive: isActive,
     isAdmin: isAdmin,
@@ -1609,6 +1754,8 @@ function listClosingInactivityAlerts_(thresholdMinutes, now) {
   }
 
   var idx = indexMap_(values[0]);
+  var editorSheet = getSheet_(prop_("EDITORS_SHEET", "Editors"));
+  var editorMap = getEditorPermissionMapByEmail_(editorSheet.getDataRange().getValues());
   var alerts = [];
 
   for (var i = 1; i < values.length; i += 1) {
@@ -1631,11 +1778,18 @@ function listClosingInactivityAlerts_(thresholdMinutes, now) {
       continue;
     }
 
-    alerts.push({
+    var alert = {
       userEmail: rowEmail,
       minutesWithoutClosing: Math.floor(diffMs / 60000),
       lastClosingAt: lastClosingAt,
-    });
+    };
+
+    var editor = editorMap[rowEmail];
+    if (editor && editor.name) {
+      alert.userName = editor.name;
+    }
+
+    alerts.push(alert);
   }
 
   alerts.sort(function (a, b) {

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { AlertCircle, Loader2, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw, Search, UserRound } from "lucide-react";
 
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,10 @@ export function AppHeader() {
   const canEditPortal = Boolean(data?.user?.canEdit || data?.user?.isAdmin);
   const recentUpdatesCount = data?.recentUpdates.length ?? 0;
   const announcementsCount = data?.announcements.length ?? 0;
+  const currentUserName = String(data?.user?.name ?? "").trim() || "名前未設定";
+  const currentUserEmail = String(data?.user?.email ?? "").trim() || "unknown";
+  const currentUserLabel = currentUserName;
+  const currentUserTitle = `${currentUserName} (${currentUserEmail})`;
   const mobileNavItems = [
     ...baseMobileNavItems,
     ...(canEditPortal ? [highlightsMobileNavItem] : []),
@@ -109,6 +113,14 @@ export function AppHeader() {
           <span className="rounded-md border bg-muted px-2 py-1">取得: {lastLoadedLabel}</span>
           <span className="rounded-md border bg-muted px-2 py-1">更新: {recentUpdatesCount}件</span>
           <span className="rounded-md border bg-muted px-2 py-1">周知: {announcementsCount}件</span>
+        </div>
+        <div
+          className="inline-flex h-8 max-w-[190px] shrink-0 items-center gap-1.5 rounded-md border bg-muted px-2 text-xs text-foreground"
+          title={currentUserTitle}
+          aria-label={`ログイン中ユーザー: ${currentUserTitle}`}
+        >
+          <UserRound className="size-3.5 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate">{currentUserLabel}</span>
         </div>
       </div>
 

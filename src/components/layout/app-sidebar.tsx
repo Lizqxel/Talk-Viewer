@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo } from "react";
 import { BookOpenText, House, KeyRound, Layers3, NotebookPen } from "lucide-react";
 
 import { AcquiredPointButton } from "@/components/talk/acquired-point-button";
@@ -50,6 +51,32 @@ const highlightsNavigationItem = {
 
 const publicBasePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
 const bbcMarkSrc = `${publicBasePath}/bbc-mark.svg`;
+const SCRIPT_ACTIVITY_HIGHLIGHT_ID = "script-activity-latest";
+const HOME_NOTIFICATION_SEEN_STORAGE_KEY = "talk-viewer:home-notification-seen";
+
+function readSeenHomeNotificationSignature() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage.getItem(HOME_NOTIFICATION_SEEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeSeenHomeNotificationSignature(signature: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(HOME_NOTIFICATION_SEEN_STORAGE_KEY, signature);
+  } catch {
+    // Ignore storage failures to keep navigation functional.
+  }
+}
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -66,6 +93,41 @@ export function AppSidebar() {
     ...(canEditPortal ? [highlightsNavigationItem] : []),
     ...(data?.user?.isAdmin ? [adminNavigationItem] : []),
   ];
+
+  const latestHomeNotificationSignature = useMemo(() => {
+    const highlight = data?.dailyHighlights.find((item) => item.id === SCRIPT_ACTIVITY_HIGHLIGHT_ID);
+
+    if (!highlight) {
+      return null;
+    }
+
+    const title = highlight.title.trim();
+    const detail = highlight.detail.trim();
+    if (!title || !detail) {
+      return null;
+    }
+
+    return `${highlight.id}:${title}:${detail}`;
+  }, [data]);
+
+  const hasUnreadHomeNotification = useMemo(() => {
+    if (!latestHomeNotificationSignature) {
+      return false;
+    }
+
+    if (pathname === "/") {
+      return false;
+    }
+
+    const seenSignature = readSeenHomeNotificationSignature();
+    return seenSignature !== latestHomeNotificationSignature;
+  }, [pathname, latestHomeNotificationSignature]);
+
+  useEffect(() => {
+    if (pathname === "/" && latestHomeNotificationSignature) {
+      writeSeenHomeNotificationSignature(latestHomeNotificationSignature);
+    }
+  }, [pathname, latestHomeNotificationSignature]);
 
   return (
     <aside
@@ -96,6 +158,10 @@ export function AppSidebar() {
         {navigationItems.map((item) => {
           const isActive = item.match(pathname);
           const Icon = item.icon;
+          const showHomeNotificationDot =
+            item.href === "/" &&
+            pathname !== "/" &&
+            hasUnreadHomeNotification;
 
           return (
             <Link
@@ -111,8 +177,14 @@ export function AppSidebar() {
               )}
               aria-current={isActive ? "page" : undefined}
             >
-              <Icon className="size-4" aria-hidden="true" />
+              <span className="relative inline-flex">
+                <Icon className="size-4" aria-hidden="true" />
+                {showHomeNotificationDot ? (
+                  <span className="absolute -top-1 -right-1 size-2 rounded-full bg-red-500 ring-2 ring-card" aria-hidden="true" />
+                ) : null}
+              </span>
               <span className={cn(isCompactTalkSidebar ? "hidden xl:inline" : null)}>{item.label}</span>
+              {showHomeNotificationDot ? <span className="sr-only">ホームに新着通知があります</span> : null}
             </Link>
           );
         })}

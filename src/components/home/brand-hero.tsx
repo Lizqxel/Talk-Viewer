@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, BellRing, ExternalLink } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,21 @@ const FALLBACK_IMPORTANT_HIGHLIGHT: DailyHighlight = {
   detail: "ここには本日の重要情報が入ります",
 };
 
+const SCRIPT_ACTIVITY_HIGHLIGHT_ID = "script-activity-latest";
+const HOME_NOTIFICATION_SEEN_STORAGE_KEY = "talk-viewer:home-notification-seen";
+
+function readSeenHomeNotificationSignature() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage.getItem(HOME_NOTIFICATION_SEEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function BrandHero({ dailyHighlights, canEditImportantInfo }: BrandHeroProps) {
   const resolvedHighlights = useMemo(() => {
     const list = dailyHighlights
@@ -37,6 +52,21 @@ export function BrandHero({ dailyHighlights, canEditImportantInfo }: BrandHeroPr
   }, [dailyHighlights]);
 
   const shouldScrollable = resolvedHighlights.length >= 4;
+
+  const latestNotificationSignature = useMemo(() => {
+    const item = resolvedHighlights.find((highlight) => highlight.id === SCRIPT_ACTIVITY_HIGHLIGHT_ID);
+    if (!item) {
+      return null;
+    }
+
+    return `${item.id}:${item.title}:${item.detail}`;
+  }, [resolvedHighlights]);
+
+  const [openedSeenSignature] = useState<string | null>(() => readSeenHomeNotificationSignature());
+
+  const hasUnreadImportantInfo = Boolean(
+    latestNotificationSignature && openedSeenSignature !== latestNotificationSignature,
+  );
 
   return (
     <section className="home-hero-frame relative min-h-[88vh] overflow-hidden rounded-3xl border border-zinc-900/15 xl:min-h-[92vh]">
@@ -87,7 +117,12 @@ export function BrandHero({ dailyHighlights, canEditImportantInfo }: BrandHeroPr
             </div>
           </div>
 
-          <Card className="home-hero-float-card ml-auto w-full max-w-md border-zinc-900/20 bg-white/88 shadow-[0_16px_34px_rgba(0,0,0,0.24)] backdrop-blur-md">
+          <Card
+            className={cn(
+              "home-hero-float-card relative ml-auto w-full max-w-md border-zinc-900/20 bg-white/88 shadow-[0_16px_34px_rgba(0,0,0,0.24)] backdrop-blur-md",
+              hasUnreadImportantInfo ? "ring-2 ring-red-400/75" : null,
+            )}
+          >
             <CardHeader className="border-b border-zinc-900/10 pb-3">
               <CardTitle className="flex items-center justify-between gap-3 text-base text-zinc-900">
                 <span className="inline-flex items-center gap-2">
@@ -100,16 +135,22 @@ export function BrandHero({ dailyHighlights, canEditImportantInfo }: BrandHeroPr
             <CardContent className="space-y-3 pt-4">
               <div className={cn("space-y-2", shouldScrollable ? "max-h-64 overflow-y-auto pr-1" : null)}>
                 {resolvedHighlights.map((item, index) => {
+                  const isUnreadNotification = hasUnreadImportantInfo && item.id === SCRIPT_ACTIVITY_HIGHLIGHT_ID;
+
                   return (
                     <div
                       key={item.id || `home-highlight-${index}`}
                       className={cn(
-                        "rounded-lg px-3 py-2.5",
+                        "relative rounded-lg px-3 py-2.5",
                         index === 0
                           ? "border border-primary/35 bg-primary/14"
                           : "border border-zinc-900/12 bg-white/80",
+                        isUnreadNotification ? "border-red-400/75 bg-red-50/80" : null,
                       )}
                     >
+                      {isUnreadNotification ? (
+                        <span className="absolute -top-1 -right-1 size-2 rounded-full bg-red-500 ring-2 ring-white" aria-hidden="true" />
+                      ) : null}
                       <p className="text-xs font-semibold tracking-[0.08em] text-zinc-700 uppercase">{item.title}</p>
                       <p className="mt-1.5 text-sm font-semibold text-zinc-900">{item.detail}</p>
                     </div>

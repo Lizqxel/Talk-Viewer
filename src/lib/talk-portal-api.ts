@@ -23,12 +23,14 @@ import { MockTalkRepository } from "@/repositories/mock/mock-talk-repository";
 
 export interface TalkPortalUser {
   email?: string;
+  name?: string;
   canEdit?: boolean;
   isAdmin?: boolean;
 }
 
 export interface ScriptEditorPermission {
   email: string;
+  name?: string;
   canEdit: boolean;
   isActive: boolean;
   isAdmin: boolean;
@@ -38,6 +40,7 @@ export interface ScriptEditorPermission {
 
 export interface UpsertScriptEditorPermissionInput {
   email: string;
+  name?: string;
   canEdit: boolean;
   isActive: boolean;
   isAdmin: boolean;
@@ -45,6 +48,7 @@ export interface UpsertScriptEditorPermissionInput {
 
 export interface ScriptEditorPermissionUpsertResult {
   email: string;
+  name?: string;
   canEdit: boolean;
   isActive: boolean;
   isAdmin: boolean;
@@ -52,6 +56,12 @@ export interface ScriptEditorPermissionUpsertResult {
 
 export interface ScriptEditorPermissionDeleteResult {
   email: string;
+}
+
+export interface UpdateMyDisplayNameResult {
+  email?: string;
+  name?: string;
+  transport: "fetch" | "no-cors";
 }
 
 export interface UpsertDailyHighlightInput {
@@ -68,6 +78,14 @@ export interface DailyHighlightUpsertResult {
   detail: string;
   sortOrder?: number;
   isActive?: boolean;
+}
+
+export interface PublishScriptActivityHighlightInput {
+  action: "created" | "edited";
+  talkId: string;
+  talkTitle: string;
+  actorEmail?: string;
+  occurredAt?: Date;
 }
 
 export interface TalkBootstrapPayload {
@@ -148,6 +166,8 @@ export class TalkPortalApiError extends Error {
 
 const API_URL = process.env.NEXT_PUBLIC_TALK_API_URL?.trim() ?? "";
 const BOOTSTRAP_FETCH_TIMEOUT_MS = 12000;
+const SCRIPT_ACTIVITY_HIGHLIGHT_ID = "script-activity-latest";
+const SCRIPT_ACTIVITY_HIGHLIGHT_TITLE = "スクリプト更新通知";
 
 export const DEFAULT_PRODUCT_LABELS: Record<TalkProduct, string> = {
   hikari: "光回線",
@@ -244,6 +264,23 @@ function toOptionalBoolean(value: unknown): boolean | undefined {
   return toBoolean(value, false);
 }
 
+function normalizeSingleLine(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function formatScriptActivityTimestamp(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}/${month}/${day} ${hours}:${minutes}`;
+}
+
+function toScriptActivityActionLabel(action: PublishScriptActivityHighlightInput["action"]) {
+  return action === "created" ? "新規作成" : "編集";
+}
+
 function normalizeProductLabels(raw: LooseRecord | null): Record<TalkProduct, string> {
   const result: Record<TalkProduct, string> = { ...DEFAULT_PRODUCT_LABELS };
 
@@ -315,11 +352,14 @@ function resolveUserFromRecord(source: LooseRecord | null): TalkPortalUser | und
   }
 
   const email = pickFirstValue(source, ["email", "メール"]);
+  const name = pickFirstValue(source, ["name", "displayName", "display_name", "userName", "氏名", "名前"]);
   const canEdit = pickFirstValue(source, ["canEdit", "編集可", "can_edit"]);
   const isAdmin = pickFirstValue(source, ["isAdmin", "管理者", "is_admin"]);
+  const normalizedName = name ? String(name).trim() : "";
 
   return {
     email: email ? String(email) : undefined,
+    name: normalizedName || undefined,
     canEdit: toOptionalBoolean(canEdit),
     isAdmin: toOptionalBoolean(isAdmin),
   };
@@ -580,11 +620,14 @@ function normalizeEditorPermission(raw: unknown): ScriptEditorPermission | null 
   const canEdit = pickFirstValue(record, ["canEdit", "can_edit", "編集可"]);
   const isActive = pickFirstValue(record, ["isActive", "is_active", "有効"]);
   const isAdmin = pickFirstValue(record, ["isAdmin", "is_admin", "管理者"]);
+  const name = pickFirstValue(record, ["name", "displayName", "display_name", "userName", "user_name", "氏名", "名前"]);
   const updatedAt = pickFirstValue(record, ["updatedAt", "updated_at", "更新日時"]);
   const updatedBy = pickFirstValue(record, ["updatedBy", "updated_by", "更新者"]);
+  const normalizedName = name ? String(name).trim() : "";
 
   return {
     email,
+    name: normalizedName || undefined,
     canEdit: toBoolean(canEdit, false),
     isActive: toBoolean(isActive, false),
     isAdmin: toBoolean(isAdmin, false),
@@ -1436,12 +1479,15 @@ export async function upsertScriptEditorPermission(
     throw new TalkPortalApiError("メールアドレスを入力してください", 400, "INVALID_EDITOR_EMAIL");
   }
 
+  const name = String(input.name ?? "").trim();
+
   const endpoint = new URL(API_URL);
 
   const body = JSON.stringify({
     action: "upsertEditorPermission",
     editor: {
       email,
+      name,
       canEdit: input.canEdit,
       isActive: input.isActive,
       isAdmin: input.isAdmin,
@@ -1475,6 +1521,7 @@ export async function upsertScriptEditorPermission(
 
     return {
       email: permission?.email ?? email,
+      name: permission?.name ?? (name || undefined),
       canEdit: permission?.canEdit ?? input.canEdit,
       isActive: permission?.isActive ?? input.isActive,
       isAdmin: permission?.isAdmin ?? input.isAdmin,
@@ -1524,9 +1571,104 @@ export async function upsertScriptEditorPermission(
 
     return {
       email: savedPermission.email,
+      name: savedPermission.name,
       canEdit: savedPermission.canEdit,
       isActive: savedPermission.isActive,
       isAdmin: savedPermission.isAdmin,
+    };
+  }
+}
+
+export async function updateMyDisplayNameByApi(nameInput: string): Promise<UpdateMyDisplayNameResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const normalizedName = normalizeSingleLine(String(nameInput ?? ""));
+  if (normalizedName.length > 60) {
+    throw new TalkPortalApiError("表示名は60文字以内で入力してください", 400, "INVALID_DISPLAY_NAME");
+  }
+
+  const endpoint = new URL(API_URL);
+  const body = JSON.stringify({
+    action: "updateMyDisplayName",
+    name: normalizedName,
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "表示名の更新に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "表示名の更新に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    const user = resolveUser(json);
+    const resolvedName = user?.name ?? normalizedName;
+
+    return {
+      email: user?.email,
+      name: resolvedName || undefined,
+      transport: "fetch",
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "表示名更新リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const verification = await fetchTalkBootstrapViaJsonp();
+    const verifiedName = verification.user?.name ?? normalizedName;
+
+    return {
+      email: verification.user?.email,
+      name: verifiedName || undefined,
+      transport: "no-cors",
     };
   }
 }
@@ -1675,6 +1817,34 @@ export async function upsertDailyHighlightByApi(
       isActive,
     };
   }
+}
+
+export async function publishScriptActivityHighlightByApi(
+  input: PublishScriptActivityHighlightInput,
+): Promise<DailyHighlightUpsertResult> {
+  const talkId = normalizeSingleLine(input.talkId);
+  if (!talkId) {
+    throw new TalkPortalApiError("通知対象のトークIDが不正です", 400, "INVALID_SCRIPT_ACTIVITY_TALK_ID");
+  }
+
+  const talkTitle = normalizeSingleLine(input.talkTitle);
+  if (!talkTitle) {
+    throw new TalkPortalApiError("通知対象のトークタイトルが不正です", 400, "INVALID_SCRIPT_ACTIVITY_TALK_TITLE");
+  }
+
+  const actorEmail = normalizeSingleLine(input.actorEmail ?? "") || "不明ユーザー";
+  const actionLabel = toScriptActivityActionLabel(input.action);
+  const occurredAt = input.occurredAt ?? new Date();
+  const occurredAtLabel = formatScriptActivityTimestamp(occurredAt);
+  const detail = `${actorEmail} が「${talkTitle}（ID: ${talkId}）」を${actionLabel}しました（${occurredAtLabel}）`;
+
+  return upsertDailyHighlightByApi({
+    id: SCRIPT_ACTIVITY_HIGHLIGHT_ID,
+    title: SCRIPT_ACTIVITY_HIGHLIGHT_TITLE,
+    detail,
+    sortOrder: 1,
+    isActive: true,
+  });
 }
 
 export async function deleteScriptEditorPermission(
