@@ -1309,7 +1309,15 @@ function ensureEditorColumns_(sheet, header) {
     nextHeader = [];
   }
 
-  var requiredColumns = ["email", "name", "can_edit", "is_active", "is_admin", "updated_at", "updated_by"];
+  var requiredColumns = [
+    "email",
+    "name",
+    "can_edit",
+    "is_active",
+    "is_admin",
+    "updated_at",
+    "updated_by",
+  ];
   var changed = false;
 
   requiredColumns.forEach(function (columnName) {
@@ -1467,7 +1475,12 @@ function upsertEditorPermission_(editor, actorEmail) {
   var actor = normalizeEmail_(actorEmail);
 
   setRowValueIfPresent_(rowValues, idx, ["email", "mail", "メール"], normalizedEmail);
-  setRowValueIfPresent_(rowValues, idx, ["name", "display_name", "displayName", "氏名", "名前"], name);
+  setRowValueIfPresent_(
+    rowValues,
+    idx,
+    ["name", "display_name", "displayName", "氏名", "名前"],
+    name,
+  );
   setRowValueIfPresent_(rowValues, idx, ["can_edit", "canEdit", "編集可"], canEdit);
   setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], isActive);
   setRowValueIfPresent_(rowValues, idx, ["is_admin", "isAdmin", "管理者"], isAdmin);
@@ -1522,8 +1535,14 @@ function upsertOwnDisplayName_(email, name, actorEmail) {
     }
 
     targetRowNumber = i + 1;
-    canEdit = parseBoolean_(getRowValueByKeys_(values[i], idx, ["can_edit", "canEdit", "編集可"]), false);
-    isActive = parseBoolean_(getRowValueByKeys_(values[i], idx, ["is_active", "isActive", "有効"]), true);
+    canEdit = parseBoolean_(
+      getRowValueByKeys_(values[i], idx, ["can_edit", "canEdit", "編集可"]),
+      false,
+    );
+    isActive = parseBoolean_(
+      getRowValueByKeys_(values[i], idx, ["is_active", "isActive", "有効"]),
+      true,
+    );
     isAdmin = parseAdminByRow_(values[i], idx);
     break;
   }
@@ -1540,11 +1559,21 @@ function upsertOwnDisplayName_(email, name, actorEmail) {
   var actor = normalizeEmail_(actorEmail);
 
   setRowValueIfPresent_(rowValues, idx, ["email", "mail", "メール"], normalizedEmail);
-  setRowValueIfPresent_(rowValues, idx, ["name", "display_name", "displayName", "氏名", "名前"], normalizedName);
+  setRowValueIfPresent_(
+    rowValues,
+    idx,
+    ["name", "display_name", "displayName", "氏名", "名前"],
+    normalizedName,
+  );
   setRowValueIfPresent_(rowValues, idx, ["can_edit", "canEdit", "編集可"], canEdit);
   setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], isActive);
   setRowValueIfPresent_(rowValues, idx, ["is_admin", "isAdmin", "管理者"], isAdmin);
-  setRowValueIfPresent_(rowValues, idx, ["role", "権限"], isAdmin ? "admin" : canEdit ? "editor" : "viewer");
+  setRowValueIfPresent_(
+    rowValues,
+    idx,
+    ["role", "権限"],
+    isAdmin ? "admin" : canEdit ? "editor" : "viewer",
+  );
   setRowValueIfPresent_(rowValues, idx, ["updated_at", "updatedAt", "更新日時"], now);
   setRowValueIfPresent_(rowValues, idx, ["updated_by", "updatedBy", "更新者"], actor);
 
