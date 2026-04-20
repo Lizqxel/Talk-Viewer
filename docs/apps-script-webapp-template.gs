@@ -13,6 +13,7 @@
  * - CLOSING_AUDIT_SHEET   (default: ClosingAudit)
  * - ALLOWED_RETURN_HOSTS (optional, comma-separated. ex: lizqxel.github.io,localhost:3000)
  * - PREFERRED_RETURN_URL (optional, full URL. ex: https://lizqxel.github.io/Talk-Viewer/)
+ * - ALLOW_ALL_USERS (optional, true/false. true でドメイン/メール判定を一時的に無効化)
  */
 
 function doGet(e) {
@@ -48,6 +49,7 @@ function doGet(e) {
             action: "whoami",
             email: allowDebug.email,
             isAllowed: allowDebug.allowed,
+            allowAllUsers: allowDebug.allowAllUsers,
             matchedAllowedEmail: allowDebug.matchedAllowedEmail,
             matchedAllowedDomain: allowDebug.matchedAllowedDomain,
             allowedDomain: allowDebug.allowedDomain,
@@ -2103,6 +2105,23 @@ function isDomainAllowed_(email) {
   return getDomainAllowanceDebug_(email).allowed;
 }
 
+function isAllowAllUsersEnabled_() {
+  return parseBooleanFlag_(prop_("ALLOW_ALL_USERS", "false"));
+}
+
+function parseBooleanFlag_(value) {
+  var normalized = String(value || "")
+    .toLowerCase()
+    .trim();
+
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
+
 function normalizeDomainToken_(value) {
   var raw = String(value || "")
     .toLowerCase()
@@ -2167,6 +2186,21 @@ function parseAllowedDomains_() {
 function getDomainAllowanceDebug_(email) {
   const normalizedEmail = normalizeEmail_(email);
 
+  const allowAllUsers = isAllowAllUsersEnabled_();
+  if (allowAllUsers) {
+    return {
+      email: normalizedEmail,
+      emailDomain: extractEmailDomain_(normalizedEmail),
+      allowAllUsers: true,
+      allowedDomain: "*",
+      allowedDomainsCount: 0,
+      allowedEmailsCount: 0,
+      matchedAllowedEmail: false,
+      matchedAllowedDomain: false,
+      allowed: true,
+    };
+  }
+
   const allowedEmailsText = prop_("ALLOWED_EMAILS", "");
   const allowedEmails = allowedEmailsText
     .split(",")
@@ -2189,6 +2223,7 @@ function getDomainAllowanceDebug_(email) {
   return {
     email: normalizedEmail,
     emailDomain: emailDomain,
+    allowAllUsers: false,
     allowedDomain: allowedDomains.join(","),
     allowedDomainsCount: allowedDomains.length,
     allowedEmailsCount: allowedEmails.length,
