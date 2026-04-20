@@ -14,6 +14,7 @@ import {
   type RecentUpdate,
   type Talk,
   type TalkCategory,
+  type TalkBranchGuide,
   type TalkNode,
   type TalkProduct,
   type TalkScene,
@@ -420,6 +421,28 @@ function tryParseLegacyBranchText(text: string): { trigger: string; action: stri
   return { trigger, action };
 }
 
+function normalizeStructuredBranchGuide(
+  guide: TalkBranchGuide,
+  maxAfterLine: number,
+  fallbackAfterLine?: number,
+): TalkBranchGuide {
+  const normalizedAfterLine = clampAfterLine(
+    typeof guide.afterLine === "number" ? guide.afterLine : (fallbackAfterLine ?? maxAfterLine),
+    maxAfterLine,
+  );
+
+  const normalizedBranches = (guide.branches ?? []).map((branch) =>
+    normalizeStructuredBranchGuide(branch, maxAfterLine, normalizedAfterLine),
+  );
+
+  return {
+    afterLine: normalizedAfterLine,
+    trigger: String(guide.trigger ?? ""),
+    action: String(guide.action ?? ""),
+    branches: normalizedBranches.length > 0 ? normalizedBranches : undefined,
+  };
+}
+
 function normalizeTalkListForBranchGuides(talks: Talk[]): Talk[] {
   return talks.map((talk) => ({
     ...talk,
@@ -427,11 +450,9 @@ function normalizeTalkListForBranchGuides(talks: Talk[]): Talk[] {
       const scriptLines = getNodeScriptLines(node);
       const maxAfterLine = scriptLines.length;
 
-      const normalizedStructuredGuides = (node.branchGuides ?? []).map((guide) => ({
-        afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
-        trigger: String(guide.trigger ?? ""),
-        action: String(guide.action ?? ""),
-      }));
+      const normalizedStructuredGuides = (node.branchGuides ?? []).map((guide) =>
+        normalizeStructuredBranchGuide(guide, maxAfterLine),
+      );
 
       const legacyGuides = (node.inlineNotes ?? [])
         .filter((note) => note.tone === "branch")
