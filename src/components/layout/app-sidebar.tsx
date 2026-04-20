@@ -10,6 +10,10 @@ import { BookOpenText, House, KeyRound, Layers3, NotebookPen } from "lucide-reac
 import { AcquiredPointButton } from "@/components/talk/acquired-point-button";
 import { ClosingActionButton } from "@/components/talk/closing-action-button";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
+import {
+  compareScriptActivityHighlightIdDesc,
+  isScriptActivityHighlightId,
+} from "@/lib/script-activity-highlight";
 import { cn } from "@/lib/utils";
 
 const ClosingManagerSidebarSummary = dynamic(
@@ -51,7 +55,6 @@ const highlightsNavigationItem = {
 
 const publicBasePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
 const bbcMarkSrc = `${publicBasePath}/bbc-mark.svg`;
-const SCRIPT_ACTIVITY_HIGHLIGHT_ID = "script-activity-latest";
 const HOME_NOTIFICATION_SEEN_STORAGE_KEY = "talk-viewer:home-notification-seen";
 
 function readSeenHomeNotificationSignature() {
@@ -94,21 +97,38 @@ export function AppSidebar() {
     ...(data?.user?.isAdmin ? [adminNavigationItem] : []),
   ];
 
-  const latestHomeNotificationSignature = useMemo(() => {
-    const highlight = data?.dailyHighlights.find((item) => item.id === SCRIPT_ACTIVITY_HIGHLIGHT_ID);
+  const latestScriptActivityHighlight = useMemo(() => {
+    const candidates =
+      data?.dailyHighlights
+        .map((item) => {
+          return {
+            id: item.id,
+            title: item.title.trim(),
+            detail: item.detail.trim(),
+          };
+        })
+        .filter(
+          (item) =>
+            isScriptActivityHighlightId(item.id) &&
+            item.title.length > 0 &&
+            item.detail.length > 0,
+        ) ?? [];
 
-    if (!highlight) {
+    if (candidates.length === 0) {
       return null;
     }
 
-    const title = highlight.title.trim();
-    const detail = highlight.detail.trim();
-    if (!title || !detail) {
-      return null;
-    }
-
-    return `${highlight.id}:${title}:${detail}`;
+    candidates.sort((a, b) => compareScriptActivityHighlightIdDesc(a.id, b.id));
+    return candidates[0];
   }, [data]);
+
+  const latestHomeNotificationSignature = useMemo(() => {
+    if (!latestScriptActivityHighlight) {
+      return null;
+    }
+
+    return `${latestScriptActivityHighlight.id}:${latestScriptActivityHighlight.title}:${latestScriptActivityHighlight.detail}`;
+  }, [latestScriptActivityHighlight]);
 
   const hasUnreadHomeNotification = useMemo(() => {
     if (!latestHomeNotificationSignature) {

@@ -20,6 +20,11 @@ import {
 } from "@/types/talk";
 import { DEFAULT_OUT_REPLIES_BY_NODE_ID } from "@/lib/default-out-replies";
 import { MockTalkRepository } from "@/repositories/mock/mock-talk-repository";
+import {
+  compareScriptActivityHighlightIdDesc,
+  createScriptActivityHighlightId,
+  isScriptActivityHighlightId,
+} from "@/lib/script-activity-highlight";
 
 export interface TalkPortalUser {
   email?: string;
@@ -166,8 +171,8 @@ export class TalkPortalApiError extends Error {
 
 const API_URL = process.env.NEXT_PUBLIC_TALK_API_URL?.trim() ?? "";
 const BOOTSTRAP_FETCH_TIMEOUT_MS = 12000;
-const SCRIPT_ACTIVITY_HIGHLIGHT_ID = "script-activity-latest";
 const SCRIPT_ACTIVITY_HIGHLIGHT_TITLE = "スクリプト更新通知";
+const SCRIPT_ACTIVITY_HIGHLIGHT_KEEP_LIMIT = 8;
 
 export const DEFAULT_PRODUCT_LABELS: Record<TalkProduct, string> = {
   hikari: "光回線",
@@ -1838,13 +1843,39 @@ export async function publishScriptActivityHighlightByApi(
   const occurredAtLabel = formatScriptActivityTimestamp(occurredAt);
   const detail = `${actorEmail} が「${talkTitle}（ID: ${talkId}）」を${actionLabel}しました（${occurredAtLabel}）`;
 
-  return upsertDailyHighlightByApi({
-    id: SCRIPT_ACTIVITY_HIGHLIGHT_ID,
+  const highlightId = createScriptActivityHighlightId(occurredAt);
+  const savedHighlight = await upsertDailyHighlightByApi({
+    id: highlightId,
     title: SCRIPT_ACTIVITY_HIGHLIGHT_TITLE,
     detail,
     sortOrder: 1,
     isActive: true,
   });
+
+  try {
+    const verification = await fetchTalkBootstrapViaJsonp();
+    const highlightsToDisable = verification.dailyHighlights
+      .filter((item) => isScriptActivityHighlightId(item.id) && item.id !== highlightId)
+      .sort((a, b) => compareScriptActivityHighlightIdDesc(a.id, b.id))
+      .slice(Math.max(0, SCRIPT_ACTIVITY_HIGHLIGHT_KEEP_LIMIT - 1));
+
+    if (highlightsToDisable.length > 0) {
+      await Promise.allSettled(
+        highlightsToDisable.map((item) =>
+          upsertDailyHighlightByApi({
+            id: item.id,
+            title: item.title,
+            detail: item.detail,
+            isActive: false,
+          }),
+        ),
+      );
+    }
+  } catch {
+    // Keep the latest notification even if old-notification cleanup fails.
+  }
+
+  return savedHighlight;
 }
 
 export async function deleteScriptEditorPermission(
