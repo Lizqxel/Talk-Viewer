@@ -2227,6 +2227,38 @@ function isMissingSpreadsheetScopeError_(err) {
   );
 }
 
+// Manual helper for Apps Script editor: run once to trigger spreadsheet consent dialog.
+function grantSpreadsheetAccess() {
+  var spreadsheetId = prop_("SPREADSHEET_ID", "");
+  if (!spreadsheetId) {
+    throw new Error("SPREADSHEET_ID が未設定です");
+  }
+
+  var spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  var talksSheetName = prop_("TALKS_SHEET", "Talks");
+  var talksSheet = spreadsheet.getSheetByName(talksSheetName);
+
+  var result = {
+    ok: true,
+    userEmail: safeEmail_(),
+    spreadsheetId: spreadsheetId,
+    spreadsheetName: spreadsheet.getName(),
+    talksSheetName: talksSheet ? talksSheet.getName() : "",
+    talksSheetExists: Boolean(talksSheet),
+    executedAt: formatTokyoDateTime_(new Date()),
+  };
+
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+// Manual helper for Apps Script editor: verify which account is evaluated by domain checks.
+function debugCurrentAccountAllowance() {
+  var debug = getDomainAllowanceDebug_(safeEmail_());
+  Logger.log(JSON.stringify(debug));
+  return debug;
+}
+
 function prop_(key, fallback) {
   const value = PropertiesService.getScriptProperties().getProperty(key);
   return value !== null && value !== "" ? value : fallback;
