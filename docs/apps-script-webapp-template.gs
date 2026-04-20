@@ -75,9 +75,6 @@ function doGet(e) {
       );
     }
 
-    const canEdit = isEditor_(userEmail);
-    const isAdmin = isAdmin_(userEmail);
-
     if (action === "authorize") {
       const returnTo = getReturnTo_(e);
 
@@ -87,6 +84,9 @@ function doGet(e) {
 
       return htmlAuthorizeCompletedFallbackResponse_();
     }
+
+    const canEdit = isEditor_(userEmail);
+    const isAdmin = isAdmin_(userEmail);
 
     if (action === "listEditorPermissions") {
       if (!isAdmin) {
@@ -288,6 +288,21 @@ function doGet(e) {
       callback,
     );
   } catch (err) {
+    if (isMissingSpreadsheetScopeError_(err)) {
+      return sendResponse_(
+        {
+          ok: false,
+          error: {
+            code: "UNAUTHENTICATED_USER",
+            message:
+              "スプレッドシートへのアクセス権限が未付与です。action=authorize を開いて権限を許可後、再試行してください。",
+          },
+        },
+        401,
+        callback,
+      );
+    }
+
     return sendResponse_(
       {
         ok: false,
@@ -777,15 +792,35 @@ function doPost(e) {
       },
     });
   } catch (err) {
+    var errorText = String(err);
+
+    if (isMissingSpreadsheetScopeError_(err)) {
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "UNAUTHENTICATED_USER",
+            message:
+              "スプレッドシートへのアクセス権限が未付与です。action=authorize を開いて権限を許可後、再試行してください。",
+          },
+        },
+        401,
+      );
+    }
+
     const email = safeEmail_();
-    appendAudit_(auditAction, "", email, "error", String(err));
+    try {
+      appendAudit_(auditAction, "", email, "error", errorText);
+    } catch (auditErr) {
+      // Audit failure must not break API responses.
+    }
 
     return jsonResponse_(
       {
         ok: false,
         error: {
           code: "INTERNAL_ERROR",
-          message: String(err),
+          message: errorText,
         },
       },
       500,
@@ -2177,6 +2212,19 @@ function safeEmail_() {
   } catch (err) {
     return "";
   }
+}
+
+function isMissingSpreadsheetScopeError_(err) {
+  var text = String(err || "");
+  if (!text) {
+    return false;
+  }
+
+  return (
+    text.indexOf("www.googleapis.com/auth/spreadsheets") !== -1 ||
+    text.indexOf("SpreadsheetApp.openById") !== -1 ||
+    text.indexOf("openById") !== -1
+  );
 }
 
 function prop_(key, fallback) {
