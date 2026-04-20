@@ -2425,10 +2425,10 @@ function htmlAuthorizeCompletedFallbackResponse_() {
 
   var html =
     '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-    "<title>認証完了</title></head><body style=\"font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:24px;line-height:1.6;\">" +
-    "<h2 style=\"margin:0 0 10px;\">認証は完了しました</h2>" +
-    "<p style=\"margin:0 0 12px;\">return_to の検証に失敗したため自動で戻れませんでした。ポータルを再度開いてください。</p>" +
-    "<p style=\"margin:0 0 16px;font-size:13px;color:#4b5563;\">必要に応じて Script Properties の ALLOWED_RETURN_HOSTS を確認してください（例: lizqxel.github.io,localhost:3000）。</p>";
+    '<title>認証完了</title></head><body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:24px;line-height:1.6;">' +
+    '<h2 style="margin:0 0 10px;">認証は完了しました</h2>' +
+    '<p style="margin:0 0 12px;">return_to の検証に失敗したため自動で戻れませんでした。ポータルを再度開いてください。</p>' +
+    '<p style="margin:0 0 16px;font-size:13px;color:#4b5563;">必要に応じて Script Properties の ALLOWED_RETURN_HOSTS を確認してください（例: lizqxel.github.io,localhost:3000）。</p>';
 
   if (fallbackUrl) {
     html +=
