@@ -329,7 +329,7 @@ function BranchGuideInline({
   openPath: number[];
   onToggle: (depth: number, index: number) => void;
 }) {
-  const renderLevel = (levelEntries: BranchGuideEntry[], depth: number): JSX.Element | null => {
+  const renderLevel = (levelEntries: BranchGuideEntry[], depth: number) => {
     if (levelEntries.length === 0) {
       return null;
     }
