@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronLeft, FilePenLine, Loader2, MessageCircleReply, MessageSquarePlus, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { CheckCircle2, ChevronLeft, FilePenLine, GripVertical, Loader2, MessageCircleReply, MessageSquarePlus, Plus, Save, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
 
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
@@ -24,7 +24,10 @@ type BranchGuideDraft = {
   afterLine: number;
   trigger: string;
   action: string;
+  branches?: BranchGuideDraft[];
 };
+
+type BranchGuidePath = number[];
 
 type OutReplyDraft = TalkOutReply & {
   id: string;
@@ -62,18 +65,210 @@ function parseArrowText(text: string): { trigger: string; action: string } | nul
   return { trigger, action };
 }
 
+function createBranchGuideDraftId(nodeId: string) {
+  return `${nodeId}-guide-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function createBranchGuideDraft(nodeId: string, afterLine: number): BranchGuideDraft {
+  return {
+    id: createBranchGuideDraftId(nodeId),
+    afterLine,
+    trigger: "",
+    action: "",
+    branches: [],
+  };
+}
+
+function toBranchGuideDraft(nodeId: string, guide: TalkBranchGuide, path: number[] = []): BranchGuideDraft {
+  const branches = (guide.branches ?? []).map((branch, index) =>
+    toBranchGuideDraft(nodeId, branch, [...path, index]),
+  );
+
+  return {
+    id: `${nodeId}-guide-${path.join("-") || "0"}`,
+    afterLine: guide.afterLine,
+    trigger: guide.trigger,
+    action: guide.action,
+    branches: branches.length > 0 ? branches : undefined,
+  };
+}
+
+function clampTalkBranchGuideAfterLine(
+  guide: TalkBranchGuide,
+  maxAfterLine: number,
+  fallbackAfterLine?: number,
+): TalkBranchGuide {
+  const normalizedAfterLine = clampAfterLine(
+    typeof guide.afterLine === "number" ? guide.afterLine : (fallbackAfterLine ?? maxAfterLine),
+    maxAfterLine,
+  );
+
+  const normalizedBranches = (guide.branches ?? []).map((branch) =>
+    clampTalkBranchGuideAfterLine(branch, maxAfterLine, normalizedAfterLine),
+  );
+
+  return {
+    ...guide,
+    afterLine: normalizedAfterLine,
+    branches: normalizedBranches.length > 0 ? normalizedBranches : undefined,
+  };
+}
+
+function normalizeBranchGuideDraft(
+  guide: BranchGuideDraft,
+  maxAfterLine: number,
+  fallbackAfterLine?: number,
+): TalkBranchGuide {
+  const normalizedAfterLine = clampAfterLine(
+    typeof guide.afterLine === "number" ? guide.afterLine : (fallbackAfterLine ?? maxAfterLine),
+    maxAfterLine,
+  );
+
+  const normalizedBranches = (guide.branches ?? []).map((branch) =>
+    normalizeBranchGuideDraft(branch, maxAfterLine, normalizedAfterLine),
+  );
+
+  return {
+    afterLine: normalizedAfterLine,
+    trigger: guide.trigger,
+    action: guide.action,
+    branches: normalizedBranches.length > 0 ? normalizedBranches : undefined,
+  };
+}
+
+function syncDraftGuideAfterLine(guide: BranchGuideDraft, afterLine: number, maxAfterLine: number): BranchGuideDraft {
+  const normalizedAfterLine = clampAfterLine(afterLine, maxAfterLine);
+  const normalizedBranches = (guide.branches ?? []).map((branch) =>
+    syncDraftGuideAfterLine(branch, normalizedAfterLine, maxAfterLine),
+  );
+
+  return {
+    ...guide,
+    afterLine: normalizedAfterLine,
+    branches: normalizedBranches.length > 0 ? normalizedBranches : undefined,
+  };
+}
+
+function hasIncompleteBranchGuideEntry(guide: TalkBranchGuide): boolean {
+  if (!guide.trigger.trim() || !guide.action.trim()) {
+    return true;
+  }
+
+  return (guide.branches ?? []).some((branch) => hasIncompleteBranchGuideEntry(branch));
+}
+
+function getGuideAtPath(guides: BranchGuideDraft[], path: BranchGuidePath): BranchGuideDraft | null {
+  if (path.length === 0) {
+    return null;
+  }
+
+  const [currentIndex, ...rest] = path;
+  const target = guides[currentIndex];
+  if (!target) {
+    return null;
+  }
+
+  if (rest.length === 0) {
+    return target;
+  }
+
+  return getGuideAtPath(target.branches ?? [], rest);
+}
+
+function updateGuideAtPath(
+  guides: BranchGuideDraft[],
+  path: BranchGuidePath,
+  updater: (guide: BranchGuideDraft) => BranchGuideDraft,
+): BranchGuideDraft[] {
+  if (path.length === 0) {
+    return guides;
+  }
+
+  const [currentIndex, ...rest] = path;
+
+  return guides.map((guide, index) => {
+    if (index !== currentIndex) {
+      return guide;
+    }
+
+    if (rest.length === 0) {
+      return updater(guide);
+    }
+
+    const nextBranches = updateGuideAtPath(guide.branches ?? [], rest, updater);
+    return {
+      ...guide,
+      branches: nextBranches.length > 0 ? nextBranches : undefined,
+    };
+  });
+}
+
+function removeGuideAtPath(guides: BranchGuideDraft[], path: BranchGuidePath): BranchGuideDraft[] {
+  if (path.length === 0) {
+    return guides;
+  }
+
+  const [currentIndex, ...rest] = path;
+
+  if (rest.length === 0) {
+    return guides.filter((_, index) => index !== currentIndex);
+  }
+
+  return guides.map((guide, index) => {
+    if (index !== currentIndex) {
+      return guide;
+    }
+
+    const nextBranches = removeGuideAtPath(guide.branches ?? [], rest);
+    return {
+      ...guide,
+      branches: nextBranches.length > 0 ? nextBranches : undefined,
+    };
+  });
+}
+
+function moveGuideAtPath(guides: BranchGuideDraft[], path: BranchGuidePath, toIndex: number): BranchGuideDraft[] {
+  if (path.length === 0) {
+    return guides;
+  }
+
+  const [currentIndex, ...rest] = path;
+
+  if (rest.length === 0) {
+    return arrayMove(guides, currentIndex, toIndex);
+  }
+
+  return guides.map((guide, index) => {
+    if (index !== currentIndex) {
+      return guide;
+    }
+
+    const nextBranches = moveGuideAtPath(guide.branches ?? [], rest, toIndex);
+    return {
+      ...guide,
+      branches: nextBranches.length > 0 ? nextBranches : undefined,
+    };
+  });
+}
+
+function appendGuideChildAtPath(
+  guides: BranchGuideDraft[],
+  path: BranchGuidePath,
+  nextChild: BranchGuideDraft,
+): BranchGuideDraft[] {
+  return updateGuideAtPath(guides, path, (guide) => ({
+    ...guide,
+    branches: [...(guide.branches ?? []), nextChild],
+  }));
+}
+
 function extractBranchGuides(node: TalkNode): BranchGuideDraft[] {
   if ((node.branchGuides?.length ?? 0) > 0) {
-    return node.branchGuides!.map((guide, index) => ({
-      id: `${node.id}-guide-${index}`,
-      afterLine: guide.afterLine,
-      trigger: guide.trigger,
-      action: guide.action,
-    }));
+    return node.branchGuides!.map((guide, index) => toBranchGuideDraft(node.id, guide, [index]));
   }
 
   return (node.inlineNotes ?? [])
-    .map((note, index) => {
+    .map<BranchGuideDraft | null>((note, index) => {
       if (note.tone !== "branch") {
         return null;
       }
@@ -108,10 +303,9 @@ function normalizeNodeScriptLines(node: TalkNode, nextLines: string[]): TalkNode
       ...point,
       afterLine: clampAfterLine(point.afterLine, maxAfterLine),
     })),
-    branchGuides: (node.branchGuides ?? []).map((guide) => ({
-      ...guide,
-      afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
-    })),
+    branchGuides: (node.branchGuides ?? []).map((guide) =>
+      clampTalkBranchGuideAfterLine(guide, maxAfterLine),
+    ),
   };
 }
 
@@ -153,7 +347,7 @@ function normalizeTalkForSave(talk: Talk): Talk {
 
 function hasIncompleteBranchGuide(talk: Talk) {
   return talk.nodes.some((node) =>
-    (node.branchGuides ?? []).some((guide) => !guide.trigger.trim() || !guide.action.trim()),
+    (node.branchGuides ?? []).some((guide) => hasIncompleteBranchGuideEntry(guide)),
   );
 }
 
@@ -168,6 +362,167 @@ function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
   const [target] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, target);
   return next;
+}
+
+function BranchGuideEditorTree({
+  guides,
+  parentPath,
+  depth,
+  afterLineOptions,
+  selectedScriptLineCount,
+  onUpdateGuide,
+  onMoveGuide,
+  onDeleteGuide,
+  onAddChildGuide,
+}: {
+  guides: BranchGuideDraft[];
+  parentPath: BranchGuidePath;
+  depth: number;
+  afterLineOptions: { value: number; label: string }[];
+  selectedScriptLineCount: number;
+  onUpdateGuide: (path: BranchGuidePath, updater: (guide: BranchGuideDraft) => BranchGuideDraft) => void;
+  onMoveGuide: (path: BranchGuidePath, toIndex: number) => void;
+  onDeleteGuide: (path: BranchGuidePath) => void;
+  onAddChildGuide: (path: BranchGuidePath) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {guides.map((guide, guideIndex) => {
+        const path = [...parentPath, guideIndex];
+        const childGuides = guide.branches ?? [];
+        const isRoot = depth === 0;
+
+        return (
+          <div
+            key={guide.id}
+            className={`space-y-2 rounded-md border p-2.5 ${
+              isRoot ? "border-border/60 bg-background" : "border-primary/30 bg-primary/5"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                {isRoot ? `分岐 ${guideIndex + 1}` : `派生分岐 ${guideIndex + 1}`}
+              </p>
+              {!isRoot ? <span className="text-[11px] text-muted-foreground">親分岐の返しトーク後に表示</span> : null}
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-[220px_minmax(0,1fr)]">
+              {isRoot ? (
+                <select
+                  value={String(guide.afterLine)}
+                  onChange={(event) => {
+                    const nextAfterLine = clampAfterLine(Number(event.target.value), selectedScriptLineCount);
+                    onUpdateGuide(path, (item) => syncDraftGuideAfterLine(item, nextAfterLine, selectedScriptLineCount));
+                  }}
+                  className="h-9 rounded-md border border-border/70 bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  {afterLineOptions.map((option) => (
+                    <option key={`guide-${option.value}`} value={String(option.value)}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="flex h-9 items-center rounded-md border border-border/60 bg-muted/30 px-2 text-xs text-muted-foreground">
+                  親の返しトークの後
+                </div>
+              )}
+
+              <Input
+                value={guide.trigger}
+                placeholder="相手の反応ラベル"
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  onUpdateGuide(path, (item) => ({
+                    ...item,
+                    trigger: nextValue,
+                  }));
+                }}
+              />
+            </div>
+
+            <textarea
+              value={guide.action}
+              placeholder="返しトーク"
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                onUpdateGuide(path, (item) => ({
+                  ...item,
+                  action: nextValue,
+                }));
+              }}
+              className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => {
+                  onAddChildGuide(path);
+                }}
+              >
+                この分岐の先に分岐追加
+              </Button>
+
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={guideIndex === 0}
+                  onClick={() => {
+                    onMoveGuide(path, guideIndex - 1);
+                  }}
+                >
+                  上へ
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={guideIndex === guides.length - 1}
+                  onClick={() => {
+                    onMoveGuide(path, guideIndex + 1);
+                  }}
+                >
+                  下へ
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => {
+                    onDeleteGuide(path);
+                  }}
+                >
+                  削除
+                </Button>
+              </div>
+            </div>
+
+            {childGuides.length > 0 ? (
+              <div className="space-y-2 rounded-md border border-dashed border-primary/35 bg-background/70 p-2">
+                <p className="text-[11px] font-semibold tracking-wide text-primary/80 uppercase">この返しトークの先の分岐</p>
+                <BranchGuideEditorTree
+                  guides={childGuides}
+                  parentPath={path}
+                  depth={depth + 1}
+                  afterLineOptions={afterLineOptions}
+                  selectedScriptLineCount={selectedScriptLineCount}
+                  onUpdateGuide={onUpdateGuide}
+                  onMoveGuide={onMoveGuide}
+                  onDeleteGuide={onDeleteGuide}
+                  onAddChildGuide={onAddChildGuide}
+                />
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function renderSectionId(sectionId: string) {
@@ -310,6 +665,8 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
+  const [dragOverSectionId, setDragOverSectionId] = useState<string | null>(null);
 
   const talk = useMemo(() => data?.talks.find((item) => item.id === talkId) ?? null, [data, talkId]);
 
@@ -381,15 +738,13 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     const currentGuides = extractBranchGuides(node);
     const nextGuides = updater(currentGuides);
     const maxAfterLine = getScriptLines(node).length;
-    const normalizedGuides: TalkBranchGuide[] = nextGuides.map((guide) => ({
-      afterLine: clampAfterLine(guide.afterLine, maxAfterLine),
-      trigger: guide.trigger,
-      action: guide.action,
-    }));
+    const normalizedGuides: TalkBranchGuide[] = nextGuides.map((guide) =>
+      normalizeBranchGuideDraft(guide, maxAfterLine),
+    );
 
     mutateNode(node.id, (currentNode) => ({
       ...currentNode,
-      branchGuides: normalizedGuides,
+      branchGuides: normalizedGuides.length > 0 ? normalizedGuides : undefined,
     }));
   };
 
@@ -427,6 +782,53 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
         sectionDefs: arrayMove(sectionDefs, fromIndex, toIndex),
       };
     });
+  };
+
+  const clearSectionDragState = () => {
+    setDraggingSectionId(null);
+    setDragOverSectionId(null);
+  };
+
+  const handleSectionDragStart = (sectionId: string, event: DragEvent<HTMLButtonElement>) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", sectionId);
+    setDraggingSectionId(sectionId);
+    setDragOverSectionId(null);
+  };
+
+  const handleSectionDragOver = (sectionId: string, event: DragEvent<HTMLDivElement>) => {
+    if (!draggingSectionId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+
+    if (draggingSectionId !== sectionId) {
+      setDragOverSectionId(sectionId);
+    }
+  };
+
+  const handleSectionDrop = (targetSectionId: string, event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+
+    const sourceSectionId = draggingSectionId || event.dataTransfer.getData("text/plain");
+    if (!sourceSectionId || sourceSectionId === targetSectionId) {
+      clearSectionDragState();
+      return;
+    }
+
+    const fromIndex = sections.findIndex((section) => section.id === sourceSectionId);
+    const toIndex = sections.findIndex((section) => section.id === targetSectionId);
+
+    if (fromIndex < 0 || toIndex < 0) {
+      clearSectionDragState();
+      return;
+    }
+
+    handleMoveSection(fromIndex, toIndex);
+    setSelectedSectionId(sourceSectionId);
+    clearSectionDragState();
   };
 
   const handleDeleteSection = (sectionId: string) => {
@@ -713,6 +1115,46 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   }));
   const currentPointBlocks = selectedNode?.pointBlocks ?? [];
 
+  const handleUpdateGuideAtPath = (
+    path: BranchGuidePath,
+    updater: (guide: BranchGuideDraft) => BranchGuideDraft,
+  ) => {
+    if (!selectedNode) {
+      return;
+    }
+
+    updateGuides(selectedNode, (guides) => updateGuideAtPath(guides, path, updater));
+  };
+
+  const handleMoveGuideAtPath = (path: BranchGuidePath, toIndex: number) => {
+    if (!selectedNode) {
+      return;
+    }
+
+    updateGuides(selectedNode, (guides) => moveGuideAtPath(guides, path, toIndex));
+  };
+
+  const handleDeleteGuideAtPath = (path: BranchGuidePath) => {
+    if (!selectedNode) {
+      return;
+    }
+
+    updateGuides(selectedNode, (guides) => removeGuideAtPath(guides, path));
+  };
+
+  const handleAddChildGuideAtPath = (path: BranchGuidePath) => {
+    if (!selectedNode) {
+      return;
+    }
+
+    updateGuides(selectedNode, (guides) => {
+      const parentGuide = getGuideAtPath(guides, path);
+      const parentAfterLine = clampAfterLine(parentGuide?.afterLine ?? selectedScriptLines.length, selectedScriptLines.length);
+
+      return appendGuideChildAtPath(guides, path, createBranchGuideDraft(selectedNode.id, parentAfterLine));
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="space-y-3">
@@ -742,7 +1184,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
             <div className="flex items-center justify-between gap-2">
               <div>
                 <CardTitle className="text-base">セクション</CardTitle>
-                <CardDescription>セクション内の + からノードを追加します。</CardDescription>
+                <CardDescription>ハンドルをホールドして並べ替えできます。セクション内の + からノードを追加します。</CardDescription>
               </div>
               <Button type="button" variant="outline" size="sm" onClick={handleAddSection}>
                 <Plus className="size-4" aria-hidden="true" />
@@ -751,33 +1193,45 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {sections.map((section, sectionIndex) => {
+            {sections.map((section) => {
               const isSelected = selectedSection?.id === section.id;
+              const isDraggingSection = draggingSectionId === section.id;
+              const isDropTargetSection = dragOverSectionId === section.id && draggingSectionId !== section.id;
 
               return (
-                <div key={section.id} className={`rounded-lg border p-3 ${isSelected ? "border-primary/50 bg-primary/5" : "border-border/70"}`}>
+                <div
+                  key={section.id}
+                  onDragOver={(event) => handleSectionDragOver(section.id, event)}
+                  onDrop={(event) => handleSectionDrop(section.id, event)}
+                  className={`rounded-lg border p-3 transition-colors ${
+                    isDraggingSection
+                      ? "opacity-60"
+                      : isDropTargetSection
+                        ? "border-primary bg-primary/10"
+                        : isSelected
+                          ? "border-primary/50 bg-primary/5"
+                          : "border-border/70"
+                  }`}
+                >
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{renderSectionId(section.id)}</p>
                       <div className="flex items-center gap-1">
-                        <Button
+                        <button
                           type="button"
-                          variant="outline"
-                          size="xs"
-                          disabled={sectionIndex === 0}
-                          onClick={() => handleMoveSection(sectionIndex, sectionIndex - 1)}
+                          draggable
+                          onDragStart={(event) => handleSectionDragStart(section.id, event)}
+                          onDragEnd={clearSectionDragState}
+                          className={`inline-flex h-8 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${
+                            isDraggingSection ? "cursor-grabbing" : "cursor-grab"
+                          }`}
+                          aria-label="セクションをドラッグして並べ替え"
+                          title="✋をホールドして移動"
                         >
-                          上へ
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          disabled={sectionIndex === sections.length - 1}
-                          onClick={() => handleMoveSection(sectionIndex, sectionIndex + 1)}
-                        >
-                          下へ
-                        </Button>
+                          <span aria-hidden="true" className="text-sm leading-none">✋</span>
+                          <span>ドラッグ</span>
+                          <GripVertical className="size-3.5 opacity-80" aria-hidden="true" />
+                        </button>
                         <Button type="button" variant="outline" size="xs" onClick={() => handleDeleteSection(section.id)}>
                           削除
                         </Button>
@@ -903,15 +1357,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                     size="sm"
                     onClick={() => {
                       const defaultAfterLine = selectedScriptLines.length;
-                      updateGuides(selectedNode, (guides) => [
-                        ...guides,
-                        {
-                          id: `${selectedNode.id}-guide-${Date.now()}`,
-                          afterLine: defaultAfterLine,
-                          trigger: "",
-                          action: "",
-                        },
-                      ]);
+                      updateGuides(selectedNode, (guides) => [...guides, createBranchGuideDraft(selectedNode.id, defaultAfterLine)]);
                     }}
                   >
                     <MessageSquarePlus className="size-4" aria-hidden="true" />
@@ -982,106 +1428,17 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                   {currentGuides.length === 0 ? (
                     <p className="text-sm text-muted-foreground">会話ガイドはまだありません。ノード右上の会話ガイド追加で作成できます。</p>
                   ) : (
-                    <div className="space-y-2">
-                      {currentGuides.map((guide, guideIndex) => (
-                        <div key={guide.id} className="space-y-2 rounded-md border border-border/60 p-2.5">
-                          <div className="grid gap-2 md:grid-cols-[220px_minmax(0,1fr)]">
-                            <select
-                              value={String(guide.afterLine)}
-                              onChange={(event) => {
-                                const value = Number(event.target.value);
-                                updateGuides(selectedNode, (guides) =>
-                                  guides.map((item, index) =>
-                                    index === guideIndex
-                                      ? {
-                                          ...item,
-                                          afterLine: clampAfterLine(value, selectedScriptLines.length),
-                                        }
-                                      : item,
-                                  ),
-                                );
-                              }}
-                              className="h-9 rounded-md border border-border/70 bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-                            >
-                              {afterLineOptions.map((option) => (
-                                <option key={`guide-${option.value}`} value={String(option.value)}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <Input
-                              value={guide.trigger}
-                              placeholder="相手の反応ラベル"
-                              onChange={(event) => {
-                                const nextValue = event.target.value;
-                                updateGuides(selectedNode, (guides) =>
-                                  guides.map((item, index) =>
-                                    index === guideIndex
-                                      ? {
-                                          ...item,
-                                          trigger: nextValue,
-                                        }
-                                      : item,
-                                  ),
-                                );
-                              }}
-                            />
-                          </div>
-                          <textarea
-                            value={guide.action}
-                            placeholder="返しトーク"
-                            onChange={(event) => {
-                              const nextValue = event.target.value;
-                              updateGuides(selectedNode, (guides) =>
-                                guides.map((item, index) =>
-                                  index === guideIndex
-                                    ? {
-                                        ...item,
-                                        action: nextValue,
-                                      }
-                                    : item,
-                                ),
-                              );
-                            }}
-                            className="min-h-20 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-                          />
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              disabled={guideIndex === 0}
-                              onClick={() => {
-                                updateGuides(selectedNode, (guides) => arrayMove(guides, guideIndex, guideIndex - 1));
-                              }}
-                            >
-                              上へ
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              disabled={guideIndex === currentGuides.length - 1}
-                              onClick={() => {
-                                updateGuides(selectedNode, (guides) => arrayMove(guides, guideIndex, guideIndex + 1));
-                              }}
-                            >
-                              下へ
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="xs"
-                              onClick={() => {
-                                updateGuides(selectedNode, (guides) => guides.filter((_, index) => index !== guideIndex));
-                              }}
-                            >
-                              削除
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <BranchGuideEditorTree
+                      guides={currentGuides}
+                      parentPath={[]}
+                      depth={0}
+                      afterLineOptions={afterLineOptions}
+                      selectedScriptLineCount={selectedScriptLines.length}
+                      onUpdateGuide={handleUpdateGuideAtPath}
+                      onMoveGuide={handleMoveGuideAtPath}
+                      onDeleteGuide={handleDeleteGuideAtPath}
+                      onAddChildGuide={handleAddChildGuideAtPath}
+                    />
                   )}
                 </section>
 

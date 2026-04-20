@@ -26,6 +26,7 @@ export interface TalkBranchGuide {
   afterLine: number;
   trigger: string;
   action: string;
+  branches?: TalkBranchGuide[];
 }
 
 export interface TalkOutReply {

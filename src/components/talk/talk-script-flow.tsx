@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { DEFAULT_OUT_REPLIES_BY_NODE_ID } from "@/lib/default-out-replies";
 import { HIKARI_SCRIPT_SECTION_DEFS } from "@/lib/talk-sections";
-import { type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
+import { type TalkBranchGuide, type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
 
 interface TalkScriptFlowProps {
   nodes: TalkNode[];
@@ -24,6 +24,12 @@ type ScriptSection = {
   lines: string[];
   outReplies: TalkOutReply[];
   nodes?: TalkNode[];
+};
+
+type BranchGuideEntry = {
+  trigger: string;
+  action: string;
+  branches?: BranchGuideEntry[];
 };
 
 function renderLineWithCommaBreak(text: string, keyPrefix: string) {
@@ -76,13 +82,25 @@ function tryParseArrowNote(text: string): { trigger: string; action: string } | 
   return { trigger, action };
 }
 
+function toBranchGuideEntry(guide: TalkBranchGuide): BranchGuideEntry {
+  const branches = (guide.branches ?? []).map((branch) => toBranchGuideEntry(branch));
+
+  return {
+    trigger: guide.trigger,
+    action: guide.action,
+    branches: branches.length > 0 ? branches : undefined,
+  };
+}
+
+function getStepLabel(step: number) {
+  const labels = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
+  return labels[step - 1] ?? `${step}.`;
+}
+
 function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
   const structuredGuides = (node.branchGuides ?? [])
     .filter((guide) => guide.afterLine === lineNumber)
-    .map((guide) => ({
-      trigger: guide.trigger,
-      action: guide.action,
-    }));
+    .map((guide) => toBranchGuideEntry(guide));
 
   if (structuredGuides.length > 0) {
     return structuredGuides;
@@ -91,7 +109,11 @@ function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
   return (node.inlineNotes ?? [])
     .filter((note) => note.afterLine === lineNumber && note.tone === "branch")
     .map((note) => tryParseArrowNote(note.text))
-    .filter((note): note is { trigger: string; action: string } => Boolean(note));
+    .filter((note): note is { trigger: string; action: string } => Boolean(note))
+    .map((note) => ({
+      trigger: note.trigger,
+      action: note.action,
+    }));
 }
 
 export function TalkScriptFlow({ nodes, rootNodeIds, sectionDefs, sectionTitleOverrides }: TalkScriptFlowProps) {
@@ -216,7 +238,7 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
   const lineAnchoredNotes = node.inlineNotes ?? [];
   const lineAnchoredPoints = node.pointBlocks ?? [];
 
-  const [openBranchIndexByLine, setOpenBranchIndexByLine] = useState<Record<number, number | null>>({});
+  const [openBranchPathByLine, setOpenBranchPathByLine] = useState<Record<number, number[]>>({});
 
   const notesForLine = (lineNumber: number) => lineAnchoredNotes.filter((note) => note.afterLine === lineNumber);
   const pointsForLine = (lineNumber: number) => lineAnchoredPoints.filter((point) => point.afterLine === lineNumber);
@@ -236,19 +258,27 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
 
       return !Boolean(tryParseArrowNote(note.text));
     });
-    const openIndex = openBranchIndexByLine[lineNumber] ?? null;
+    const openPath = openBranchPathByLine[lineNumber] ?? [];
 
     return (
       <>
         {branchArrowNotes.length > 0 ? (
           <BranchGuideInline
             entries={branchArrowNotes}
-            openIndex={typeof openIndex === "number" ? openIndex : null}
-            onToggle={(index) =>
-              setOpenBranchIndexByLine((current) => ({
-                ...current,
-                [lineNumber]: current[lineNumber] === index ? null : index,
-              }))
+            openPath={openPath}
+            onToggle={(depth, index) =>
+              setOpenBranchPathByLine((current) => {
+                const currentPath = current[lineNumber] ?? [];
+                const isCurrent = currentPath[depth] === index;
+                const nextPath = isCurrent
+                  ? currentPath.slice(0, depth)
+                  : [...currentPath.slice(0, depth), index];
+
+                return {
+                  ...current,
+                  [lineNumber]: nextPath,
+                };
+              })
             }
           />
         ) : null}
@@ -292,31 +322,38 @@ function RenderNodeScript({ node }: { node: TalkNode }) {
 
 function BranchGuideInline({
   entries,
-  openIndex,
+  openPath,
   onToggle,
 }: {
-  entries: { trigger: string; action: string }[];
-  openIndex: number | null;
-  onToggle: (index: number) => void;
+  entries: BranchGuideEntry[];
+  openPath: number[];
+  onToggle: (depth: number, index: number) => void;
 }) {
-  const openEntry = typeof openIndex === "number" ? entries[openIndex] : null;
+  const renderLevel = (levelEntries: BranchGuideEntry[], depth: number): JSX.Element | null => {
+    if (levelEntries.length === 0) {
+      return null;
+    }
 
-  return (
-    <div className={inlineToneClass("branch")}>
-      <p className="mb-1 text-[11px] font-semibold tracking-wide uppercase">会話ガイド</p>
+    const selectedIndex = openPath[depth];
+    const openEntry = typeof selectedIndex === "number" ? levelEntries[selectedIndex] : null;
+    const triggerStep = depth * 2 + 1;
+    const actionStep = depth * 2 + 2;
 
+    return (
       <div className="space-y-2">
         <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
-          <p className="text-[11px] font-semibold text-primary/80">① 相手の反応</p>
+          <p className="text-[11px] font-semibold text-primary/80">
+            {getStepLabel(triggerStep)} {depth === 0 ? "相手の反応" : "さらに相手の反応"}
+          </p>
           <div className="mt-1 flex flex-wrap gap-1.5">
-            {entries.map((entry, index) => {
-              const isOpen = openIndex === index;
+            {levelEntries.map((entry, index) => {
+              const isOpen = selectedIndex === index;
 
               return (
                 <button
-                  key={`${entry.trigger}-${index}`}
+                  key={`${depth}-${entry.trigger}-${index}`}
                   type="button"
-                  onClick={() => onToggle(index)}
+                  onClick={() => onToggle(depth, index)}
                   aria-expanded={isOpen}
                   className={`rounded border px-2 py-1 text-sm leading-6 transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                     isOpen
@@ -333,11 +370,27 @@ function BranchGuideInline({
 
         {openEntry ? (
           <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
-            <p className="text-[11px] font-semibold text-primary/80">② 返しトーク</p>
-            <p className="text-sm leading-6 text-foreground">{openEntry.action}</p>
+            <p className="text-[11px] font-semibold text-primary/80">
+              {getStepLabel(actionStep)} {depth === 0 ? "返しトーク" : "さらに返しトーク"}
+            </p>
+            <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">{openEntry.action}</p>
+          </div>
+        ) : null}
+
+        {openEntry && (openEntry.branches?.length ?? 0) > 0 ? (
+          <div className="rounded border border-dashed border-primary/35 bg-primary/5 p-2">
+            {renderLevel(openEntry.branches ?? [], depth + 1)}
           </div>
         ) : null}
       </div>
+    );
+  };
+
+  return (
+    <div className={inlineToneClass("branch")}>
+      <p className="mb-1 text-[11px] font-semibold tracking-wide uppercase">会話ガイド</p>
+
+      {renderLevel(entries, 0)}
     </div>
   );
 }

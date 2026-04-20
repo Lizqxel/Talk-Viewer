@@ -128,7 +128,7 @@ function BranchGuideInline({
         {openEntry ? (
           <div className="rounded border border-primary/30 bg-background/70 px-2.5 py-1.5">
             <p className="text-[11px] font-semibold text-primary/80">② 返しトーク</p>
-            <p className="text-sm leading-6 text-foreground">{openEntry.action}</p>
+            <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">{openEntry.action}</p>
           </div>
         ) : null}
       </div>
