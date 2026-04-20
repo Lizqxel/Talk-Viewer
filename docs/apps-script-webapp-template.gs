@@ -1309,7 +1309,15 @@ function ensureEditorColumns_(sheet, header) {
     nextHeader = [];
   }
 
-  var requiredColumns = ["email", "name", "can_edit", "is_active", "is_admin", "updated_at", "updated_by"];
+  var requiredColumns = [
+    "email",
+    "name",
+    "can_edit",
+    "is_active",
+    "is_admin",
+    "updated_at",
+    "updated_by",
+  ];
   var changed = false;
 
   requiredColumns.forEach(function (columnName) {
@@ -1467,7 +1475,12 @@ function upsertEditorPermission_(editor, actorEmail) {
   var actor = normalizeEmail_(actorEmail);
 
   setRowValueIfPresent_(rowValues, idx, ["email", "mail", "メール"], normalizedEmail);
-  setRowValueIfPresent_(rowValues, idx, ["name", "display_name", "displayName", "氏名", "名前"], name);
+  setRowValueIfPresent_(
+    rowValues,
+    idx,
+    ["name", "display_name", "displayName", "氏名", "名前"],
+    name,
+  );
   setRowValueIfPresent_(rowValues, idx, ["can_edit", "canEdit", "編集可"], canEdit);
   setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], isActive);
   setRowValueIfPresent_(rowValues, idx, ["is_admin", "isAdmin", "管理者"], isAdmin);
@@ -1522,8 +1535,14 @@ function upsertOwnDisplayName_(email, name, actorEmail) {
     }
 
     targetRowNumber = i + 1;
-    canEdit = parseBoolean_(getRowValueByKeys_(values[i], idx, ["can_edit", "canEdit", "編集可"]), false);
-    isActive = parseBoolean_(getRowValueByKeys_(values[i], idx, ["is_active", "isActive", "有効"]), true);
+    canEdit = parseBoolean_(
+      getRowValueByKeys_(values[i], idx, ["can_edit", "canEdit", "編集可"]),
+      false,
+    );
+    isActive = parseBoolean_(
+      getRowValueByKeys_(values[i], idx, ["is_active", "isActive", "有効"]),
+      true,
+    );
     isAdmin = parseAdminByRow_(values[i], idx);
     break;
   }
@@ -1540,11 +1559,21 @@ function upsertOwnDisplayName_(email, name, actorEmail) {
   var actor = normalizeEmail_(actorEmail);
 
   setRowValueIfPresent_(rowValues, idx, ["email", "mail", "メール"], normalizedEmail);
-  setRowValueIfPresent_(rowValues, idx, ["name", "display_name", "displayName", "氏名", "名前"], normalizedName);
+  setRowValueIfPresent_(
+    rowValues,
+    idx,
+    ["name", "display_name", "displayName", "氏名", "名前"],
+    normalizedName,
+  );
   setRowValueIfPresent_(rowValues, idx, ["can_edit", "canEdit", "編集可"], canEdit);
   setRowValueIfPresent_(rowValues, idx, ["is_active", "isActive", "有効"], isActive);
   setRowValueIfPresent_(rowValues, idx, ["is_admin", "isAdmin", "管理者"], isAdmin);
-  setRowValueIfPresent_(rowValues, idx, ["role", "権限"], isAdmin ? "admin" : canEdit ? "editor" : "viewer");
+  setRowValueIfPresent_(
+    rowValues,
+    idx,
+    ["role", "権限"],
+    isAdmin ? "admin" : canEdit ? "editor" : "viewer",
+  );
   setRowValueIfPresent_(rowValues, idx, ["updated_at", "updatedAt", "更新日時"], now);
   setRowValueIfPresent_(rowValues, idx, ["updated_by", "updatedBy", "更新者"], actor);
 
@@ -2050,18 +2079,75 @@ function isDomainAllowed_(email) {
   return getDomainAllowanceDebug_(email).allowed;
 }
 
-function getDomainAllowanceDebug_(email) {
-  const normalizedEmail = String(email || "")
+function normalizeDomainToken_(value) {
+  var raw = String(value || "")
     .toLowerCase()
     .trim();
+  if (!raw) {
+    return "";
+  }
+
+  raw = raw.replace(/^https?:\/\//, "");
+
+  if (raw.indexOf("/") !== -1) {
+    raw = raw.split("/")[0];
+  }
+
+  if (raw.indexOf("?") !== -1) {
+    raw = raw.split("?")[0];
+  }
+
+  if (raw.indexOf("#") !== -1) {
+    raw = raw.split("#")[0];
+  }
+
+  if (raw.indexOf("@") !== -1) {
+    var parts = raw.split("@");
+    raw = parts[parts.length - 1];
+  }
+
+  raw = raw.replace(/^@+/, "").replace(/\.+$/, "");
+
+  if (raw.indexOf(":") !== -1) {
+    raw = raw.split(":")[0];
+  }
+
+  return raw.trim();
+}
+
+function extractEmailDomain_(email) {
+  var normalizedEmail = normalizeEmail_(email);
+  var match = normalizedEmail.match(/@([^@]+)$/);
+  return match ? normalizeDomainToken_(match[1]) : "";
+}
+
+function parseAllowedDomains_() {
+  var rawDomain = prop_("ALLOWED_DOMAIN", "");
+  var tokens = String(rawDomain || "").split(/[\n,]/);
+  var seen = {};
+  var domains = [];
+
+  for (var i = 0; i < tokens.length; i += 1) {
+    var normalized = normalizeDomainToken_(tokens[i]);
+    if (!normalized || seen[normalized]) {
+      continue;
+    }
+
+    seen[normalized] = true;
+    domains.push(normalized);
+  }
+
+  return domains;
+}
+
+function getDomainAllowanceDebug_(email) {
+  const normalizedEmail = normalizeEmail_(email);
 
   const allowedEmailsText = prop_("ALLOWED_EMAILS", "");
   const allowedEmails = allowedEmailsText
     .split(",")
     .map(function (item) {
-      return String(item || "")
-        .toLowerCase()
-        .trim();
+      return normalizeEmail_(item);
     })
     .filter(function (item) {
       return item !== "";
@@ -2070,15 +2156,17 @@ function getDomainAllowanceDebug_(email) {
   const matchedAllowedEmail =
     normalizedEmail !== "" && allowedEmails.indexOf(normalizedEmail) !== -1;
 
-  const domain = prop_("ALLOWED_DOMAIN", "").toLowerCase().trim();
-  const match = normalizedEmail.match(/@(.+)$/);
+  const allowedDomains = parseAllowedDomains_();
+  const emailDomain = extractEmailDomain_(normalizedEmail);
   const matchedAllowedDomain = Boolean(
-    normalizedEmail !== "" && domain && match && match[1] === domain,
+    emailDomain !== "" && allowedDomains.indexOf(emailDomain) !== -1,
   );
 
   return {
     email: normalizedEmail,
-    allowedDomain: domain,
+    emailDomain: emailDomain,
+    allowedDomain: allowedDomains.join(","),
+    allowedDomainsCount: allowedDomains.length,
     allowedEmailsCount: allowedEmails.length,
     matchedAllowedEmail: matchedAllowedEmail,
     matchedAllowedDomain: matchedAllowedDomain,

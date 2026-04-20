@@ -17,6 +17,7 @@ interface UseTalkBootstrapOptions {
 
 const HARD_TIMEOUT_MS = 15000;
 const AUTO_AUTHORIZE_STORAGE_KEY = "talk-portal:auto-authorize-attempted";
+const AUTO_AUTHORIZE_MAX_ATTEMPTS = 2;
 const FORCE_MOCK_STORAGE_KEY = "talk-portal:force-mock-bootstrap";
 
 async function withHardTimeout<T>(
@@ -43,6 +44,8 @@ async function withHardTimeout<T>(
 function isAutoAuthorizeCandidate(error: TalkPortalApiError) {
   return (
     error.code === "AUTH_REDIRECT" ||
+    error.code === "UNAUTHENTICATED_USER" ||
+    error.code === "FORBIDDEN_DOMAIN" ||
     error.code === "BOOTSTRAP_TIMEOUT" ||
     error.code === "JSONP_TIMEOUT" ||
     error.code === "JSONP_LOAD_ERROR"
@@ -55,8 +58,15 @@ function tryAutoAuthorizeRedirect() {
   }
 
   try {
-    const attempted = window.sessionStorage.getItem(AUTO_AUTHORIZE_STORAGE_KEY) === "1";
-    if (attempted) {
+    const rawAttemptCount = Number.parseInt(
+      window.sessionStorage.getItem(AUTO_AUTHORIZE_STORAGE_KEY) ?? "0",
+      10,
+    );
+    const attemptCount = Number.isFinite(rawAttemptCount)
+      ? Math.max(0, Math.trunc(rawAttemptCount))
+      : 0;
+
+    if (attemptCount >= AUTO_AUTHORIZE_MAX_ATTEMPTS) {
       return false;
     }
 
@@ -65,7 +75,7 @@ function tryAutoAuthorizeRedirect() {
       return false;
     }
 
-    window.sessionStorage.setItem(AUTO_AUTHORIZE_STORAGE_KEY, "1");
+    window.sessionStorage.setItem(AUTO_AUTHORIZE_STORAGE_KEY, String(attemptCount + 1));
     window.location.assign(authorizeUrl);
     return true;
   } catch {

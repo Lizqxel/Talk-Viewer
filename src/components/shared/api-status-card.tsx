@@ -47,7 +47,8 @@ export function ApiStatusCard({ error, isLoading, onRetry }: ApiStatusCardProps)
     isLikelyUnapprovedAccount;
   const isUnauthorized = isDomainBlocked || isUnauthenticated || error.status === 403;
   const isConfigError = error.code === "MISSING_API_URL" || error.code === "MISCONFIGURED_TALK_API_URL";
-  const authorizeUrl = getTalkPortalAuthorizeUrl();
+  const returnTo = typeof window !== "undefined" ? window.location.href : undefined;
+  const authorizeUrl = getTalkPortalAuthorizeUrl(returnTo);
 
   const Icon = isUnauthorized ? LockKeyhole : isConfigError ? Settings : AlertTriangle;
   const title = isDomainBlocked
@@ -64,9 +65,9 @@ export function ApiStatusCard({ error, isLoading, onRetry }: ApiStatusCardProps)
       ? "API接続先が未設定です"
       : "データの取得に失敗しました";
   const message = isDomainBlocked
-    ? "許可されたGoogleアカウントでログインしたユーザーのみ閲覧可能です。"
+    ? "許可されたGoogleアカウントでログインしたユーザーのみ閲覧可能です。ALLOWED_DOMAIN / ALLOWED_DOMAINS / ALLOWED_EMAILS の設定値も確認してください。"
     : isLikelyUnapprovedAccount
-      ? "このアカウントでは利用できません。許可済みの社内Googleアカウントに切り替えて再読み込みしてください。"
+      ? "認証状態を確認できませんでした。許可済みの社内Googleアカウントに切り替えて再読み込みしてください。ChromeでサードパーティCookie制限が有効な場合は、このサイトと Google のCookieを許可してください。"
     : isUnauthenticated
       ? "Googleアカウントが認証できていません。許可されたGoogleアカウントでログインして再読み込みしてください。"
     : isClosingWriteNotConfirmed
