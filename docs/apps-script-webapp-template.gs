@@ -12,6 +12,7 @@
  * - CLOSING_SHEET   (default: Closing)
  * - CLOSING_AUDIT_SHEET   (default: ClosingAudit)
  * - ALLOWED_RETURN_HOSTS (optional, comma-separated. ex: lizqxel.github.io,localhost:3000)
+ * - PREFERRED_RETURN_URL (optional, full URL. ex: https://lizqxel.github.io/Talk-Viewer/)
  */
 
 function doGet(e) {
@@ -80,23 +81,11 @@ function doGet(e) {
     if (action === "authorize") {
       const returnTo = getReturnTo_(e);
 
-      if (!callback && returnTo) {
+      if (returnTo) {
         return htmlRedirectResponse_(returnTo);
       }
 
-      return sendResponse_(
-        {
-          ok: true,
-          message: "認証を確認しました。元のサイトに戻って再読み込みしてください。",
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
-        },
-        200,
-        callback,
-      );
+      return htmlAuthorizeCompletedFallbackResponse_();
     }
 
     if (action === "listEditorPermissions") {
@@ -2277,40 +2266,183 @@ function getReturnTo_(e) {
     return "";
   }
 
-  const raw = String(e.parameter.return_to || "").trim();
+  var raw = String(e.parameter.return_to || "").trim();
   if (!raw) {
     return "";
   }
 
-  try {
-    const url = new URL(raw);
-    const protocol = String(url.protocol || "").toLowerCase();
-    if (protocol !== "https:" && protocol !== "http:") {
-      return "";
-    }
-
-    const allowedHosts = prop_("ALLOWED_RETURN_HOSTS", "lizqxel.github.io,localhost:3000")
-      .split(",")
-      .map(function (value) {
-        return String(value || "")
-          .toLowerCase()
-          .trim();
-      })
-      .filter(function (value) {
-        return value !== "";
-      });
-
-    const host = String(url.host || "")
-      .toLowerCase()
-      .trim();
-    if (allowedHosts.indexOf(host) === -1) {
-      return "";
-    }
-
-    return url.toString();
-  } catch (err) {
+  var normalized = decodeReturnToValue_(raw);
+  if (!normalized) {
     return "";
   }
+
+  var parsed = parseReturnToUrl_(normalized);
+  if (!parsed) {
+    return "";
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return "";
+  }
+
+  var allowedHosts = parseAllowedReturnHosts_();
+  if (allowedHosts.indexOf(parsed.host) === -1) {
+    return "";
+  }
+
+  return parsed.href;
+}
+
+function decodeReturnToValue_(value) {
+  var current = String(value || "").trim();
+  if (!current) {
+    return "";
+  }
+
+  // Accept both plain URL and encoded/double-encoded query parameter values.
+  for (var i = 0; i < 2; i += 1) {
+    try {
+      var decoded = decodeURIComponent(current);
+      if (!decoded || decoded === current) {
+        break;
+      }
+      current = decoded;
+    } catch (err) {
+      break;
+    }
+  }
+
+  return current.trim();
+}
+
+function parseReturnToUrl_(rawUrl) {
+  var input = String(rawUrl || "").trim();
+  if (!input) {
+    return null;
+  }
+
+  // URL constructor may be unavailable depending on Apps Script runtime context.
+  try {
+    if (typeof URL === "function") {
+      var url = new URL(input);
+      return {
+        protocol: String(url.protocol || "").toLowerCase(),
+        host: normalizeReturnHostToken_(url.host || ""),
+        href: url.toString(),
+      };
+    }
+  } catch (err) {}
+
+  var match = input.match(/^([a-z][a-z0-9+.-]*):\/\/([^\/?#]+)([^\s]*)?$/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    protocol: String(match[1] || "").toLowerCase() + ":",
+    host: normalizeReturnHostToken_(match[2] || ""),
+    href: input,
+  };
+}
+
+function normalizeReturnHostToken_(value) {
+  var raw = String(value || "")
+    .toLowerCase()
+    .trim();
+  if (!raw) {
+    return "";
+  }
+
+  raw = raw.replace(/^["']+|["']+$/g, "");
+  raw = raw.replace(/^https?:\/\//, "");
+
+  if (raw.indexOf("/") !== -1) {
+    raw = raw.split("/")[0];
+  }
+
+  if (raw.indexOf("?") !== -1) {
+    raw = raw.split("?")[0];
+  }
+
+  if (raw.indexOf("#") !== -1) {
+    raw = raw.split("#")[0];
+  }
+
+  if (raw.indexOf("@") !== -1) {
+    var parts = raw.split("@");
+    raw = parts[parts.length - 1];
+  }
+
+  return raw.replace(/^@+/, "").replace(/\.+$/, "").trim();
+}
+
+function parseAllowedReturnHosts_() {
+  var rawHosts = prop_("ALLOWED_RETURN_HOSTS", "lizqxel.github.io,localhost:3000");
+  var tokens = String(rawHosts || "").split(/[\n,，、;\s]+/);
+  var seen = {};
+  var hosts = [];
+
+  for (var i = 0; i < tokens.length; i += 1) {
+    var normalized = normalizeReturnHostToken_(tokens[i]);
+    if (!normalized || seen[normalized]) {
+      continue;
+    }
+
+    seen[normalized] = true;
+    hosts.push(normalized);
+  }
+
+  return hosts;
+}
+
+function getPreferredReturnUrl_() {
+  var preferred = decodeReturnToValue_(prop_("PREFERRED_RETURN_URL", ""));
+  if (preferred) {
+    var parsedPreferred = parseReturnToUrl_(preferred);
+    if (
+      parsedPreferred &&
+      (parsedPreferred.protocol === "https:" || parsedPreferred.protocol === "http:") &&
+      parseAllowedReturnHosts_().indexOf(parsedPreferred.host) !== -1
+    ) {
+      return parsedPreferred.href;
+    }
+  }
+
+  var allowedHosts = parseAllowedReturnHosts_();
+  if (allowedHosts.length === 0) {
+    return "";
+  }
+
+  var host = allowedHosts[0];
+  var isLocalHost = /^localhost(?::\d+)?$/.test(host) || /^127\.0\.0\.1(?::\d+)?$/.test(host);
+  var protocol = isLocalHost ? "http://" : "https://";
+  return protocol + host + "/";
+}
+
+function htmlAuthorizeCompletedFallbackResponse_() {
+  var fallbackUrl = getPreferredReturnUrl_();
+  var escapedFallbackUrl = JSON.stringify(String(fallbackUrl || ""));
+
+  var html =
+    '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    "<title>認証完了</title></head><body style=\"font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:24px;line-height:1.6;\">" +
+    "<h2 style=\"margin:0 0 10px;\">認証は完了しました</h2>" +
+    "<p style=\"margin:0 0 12px;\">return_to の検証に失敗したため自動で戻れませんでした。ポータルを再度開いてください。</p>" +
+    "<p style=\"margin:0 0 16px;font-size:13px;color:#4b5563;\">必要に応じて Script Properties の ALLOWED_RETURN_HOSTS を確認してください（例: lizqxel.github.io,localhost:3000）。</p>";
+
+  if (fallbackUrl) {
+    html +=
+      '<p style="margin:0;"><a id="return-link" href="#" style="display:inline-block;padding:8px 12px;border:1px solid #111827;border-radius:8px;text-decoration:none;color:#111827;">ポータルへ戻る</a></p>' +
+      "<script>document.getElementById('return-link').setAttribute('href', " +
+      escapedFallbackUrl +
+      ");</script>";
+  }
+
+  html += "</body></html>";
+
+  return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(
+    HtmlService.XFrameOptionsMode.ALLOWALL,
+  );
 }
 
 function htmlRedirectResponse_(url) {
