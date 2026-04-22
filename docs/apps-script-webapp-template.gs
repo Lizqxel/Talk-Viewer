@@ -1450,7 +1450,9 @@ function getCurrentUserIdentity_() {
 }
 
 function getMyLinkedEmail_() {
-  var raw = normalizeEmail_(PropertiesService.getUserProperties().getProperty(USER_PROP_LINKED_EMAIL_KEY));
+  var raw = normalizeEmail_(
+    PropertiesService.getUserProperties().getProperty(USER_PROP_LINKED_EMAIL_KEY),
+  );
   if (!raw || !isValidEmailAddress_(raw)) {
     return "";
   }
@@ -1518,8 +1520,9 @@ function isPasswordAuthenticated_() {
     return false;
   }
 
-  var currentMarker =
-    String(PropertiesService.getUserProperties().getProperty(USER_PROP_PASSWORD_MARKER_KEY) || "").trim();
+  var currentMarker = String(
+    PropertiesService.getUserProperties().getProperty(USER_PROP_PASSWORD_MARKER_KEY) || "",
+  ).trim();
 
   return currentMarker === expectedMarker;
 }
