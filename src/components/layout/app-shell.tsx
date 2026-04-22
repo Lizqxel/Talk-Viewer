@@ -6,6 +6,7 @@ import { type ReactNode } from "react";
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ClosingDashboardProvider } from "@/components/shared/closing-dashboard-provider";
+import { PasswordAccessGate } from "@/components/shared/password-access-gate";
 import { TalkBootstrapProvider } from "@/components/shared/talk-bootstrap-provider";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <TalkBootstrapProvider>
       <ClosingDashboardProvider>
+        <PasswordAccessGate />
         <div className="relative min-h-screen bg-background">
           <div className="pointer-events-none fixed inset-0 z-0 bbc-global-canvas" aria-hidden="true" />
           <div className="pointer-events-none fixed inset-0 z-0 bbc-lowpoly-overlay" aria-hidden="true" />

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Link2,
   CheckCircle2,
   BellRing,
   Loader2,
@@ -21,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { updateMyDisplayNameByApi } from "@/lib/talk-portal-api";
+import { updateMyDisplayNameByApi, updateMyLinkedEmailByApi } from "@/lib/talk-portal-api";
 
 function toErrorMessage(caught: unknown) {
   if (caught instanceof Error) {
@@ -38,8 +39,14 @@ export default function HomePage() {
   const [isSavingDisplayName, setIsSavingDisplayName] = useState(false);
   const [displayNameMessage, setDisplayNameMessage] = useState<string | null>(null);
   const [displayNameError, setDisplayNameError] = useState<string | null>(null);
+  const [linkedEmailDraft, setLinkedEmailDraft] = useState("");
+  const [isSavingLinkedEmail, setIsSavingLinkedEmail] = useState(false);
+  const [linkedEmailMessage, setLinkedEmailMessage] = useState<string | null>(null);
+  const [linkedEmailError, setLinkedEmailError] = useState<string | null>(null);
 
   const currentUserEmail = data?.user?.email?.trim() ?? "";
+  const currentRawEmail = data?.user?.rawEmail?.trim() ?? "";
+  const currentLinkedEmail = data?.user?.linkedEmail?.trim() ?? "";
   const currentDisplayName = data?.user?.name?.trim() ?? "";
 
   useEffect(() => {
@@ -48,6 +55,7 @@ export default function HomePage() {
     }
 
     setDisplayNameDraft(data.user?.name ?? "");
+    setLinkedEmailDraft(data.user?.linkedEmail ?? "");
   }, [data]);
 
   const normalizedDisplayNameDraft = useMemo(
@@ -59,6 +67,26 @@ export default function HomePage() {
     !isSavingDisplayName &&
     normalizedDisplayNameDraft.length <= 60 &&
     normalizedDisplayNameDraft !== currentDisplayName;
+
+  const normalizedLinkedEmailDraft = useMemo(
+    () => linkedEmailDraft.trim().toLowerCase(),
+    [linkedEmailDraft],
+  );
+
+  const linkedEmailFormatValid = useMemo(() => {
+    if (!normalizedLinkedEmailDraft) {
+      return true;
+    }
+
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedLinkedEmailDraft);
+  }, [normalizedLinkedEmailDraft]);
+
+  const canSaveLinkedEmail =
+    !isSavingLinkedEmail &&
+    linkedEmailFormatValid &&
+    normalizedLinkedEmailDraft !== currentLinkedEmail;
+
+  const needsLinkedEmailPrompt = !currentLinkedEmail;
 
   const currentUserLabel = useMemo(() => {
     if (!currentUserEmail) {
@@ -141,6 +169,41 @@ export default function HomePage() {
     }
   };
 
+  const handleSaveLinkedEmail = async () => {
+    setLinkedEmailError(null);
+    setLinkedEmailMessage(null);
+
+    if (!linkedEmailFormatValid) {
+      setLinkedEmailError("有効なメールアドレス形式で入力してください。");
+      return;
+    }
+
+    setIsSavingLinkedEmail(true);
+
+    try {
+      const result = await updateMyLinkedEmailByApi(linkedEmailDraft);
+      const reloadError = await reload();
+
+      if (!normalizedLinkedEmailDraft) {
+        setLinkedEmailMessage("社内メール連携を解除しました。");
+      } else {
+        setLinkedEmailMessage(
+          result.transport === "fetch"
+            ? "社内メール連携を更新しました。"
+            : "社内メール連携を更新しました（検証経由）。",
+        );
+      }
+
+      if (reloadError) {
+        setLinkedEmailError(`連携反映後データ再取得に失敗しました: ${reloadError.message}`);
+      }
+    } catch (caught) {
+      setLinkedEmailError(toErrorMessage(caught));
+    } finally {
+      setIsSavingLinkedEmail(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {isFallback ? <ApiFallbackNotice onRetry={() => void reload()} reason={error?.message} /> : null}
@@ -160,53 +223,128 @@ export default function HomePage() {
 
       <Reveal>
         <section>
-          <Card className="border-zinc-900/15 bg-card shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-zinc-900">
-                <UserRound className="size-4 text-primary" aria-hidden="true" />
-                表示名設定
-              </CardTitle>
-              <CardDescription>自分の表示名を設定できます。未入力時はメールアドレス表示になります。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground">ログイン中: {currentUserLabel}</p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  value={displayNameDraft}
-                  onChange={(event) => {
-                    setDisplayNameDraft(event.target.value);
-                    setDisplayNameError(null);
-                    setDisplayNameMessage(null);
-                  }}
-                  placeholder="例: 山田 太郎"
-                  className="max-w-sm"
-                  maxLength={60}
-                  disabled={isSavingDisplayName}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void handleSaveDisplayName()}
-                  disabled={!canSaveDisplayName}
-                >
-                  {isSavingDisplayName ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-                  保存
-                </Button>
-              </div>
-              {displayNameMessage ? (
-                <p className="flex items-center gap-1.5 text-sm text-emerald-700">
-                  <CheckCircle2 className="size-4" aria-hidden="true" />
-                  {displayNameMessage}
-                </p>
-              ) : null}
-              {displayNameError ? (
-                <p className="flex items-center gap-1.5 text-sm text-destructive">
-                  <TriangleAlert className="size-4" aria-hidden="true" />
-                  {displayNameError}
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card className="border-zinc-900/15 bg-card shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-zinc-900">
+                  <UserRound className="size-4 text-primary" aria-hidden="true" />
+                  表示名設定
+                </CardTitle>
+                <CardDescription>自分の表示名を設定できます。未入力時はメールアドレス表示になります。</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">ログイン中: {currentUserLabel}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={displayNameDraft}
+                    onChange={(event) => {
+                      setDisplayNameDraft(event.target.value);
+                      setDisplayNameError(null);
+                      setDisplayNameMessage(null);
+                    }}
+                    placeholder="例: 山田 太郎"
+                    className="max-w-sm"
+                    maxLength={60}
+                    disabled={isSavingDisplayName}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void handleSaveDisplayName()}
+                    disabled={!canSaveDisplayName}
+                  >
+                    {isSavingDisplayName ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                    保存
+                  </Button>
+                </div>
+                {displayNameMessage ? (
+                  <p className="flex items-center gap-1.5 text-sm text-emerald-700">
+                    <CheckCircle2 className="size-4" aria-hidden="true" />
+                    {displayNameMessage}
+                  </p>
+                ) : null}
+                {displayNameError ? (
+                  <p className="flex items-center gap-1.5 text-sm text-destructive">
+                    <TriangleAlert className="size-4" aria-hidden="true" />
+                    {displayNameError}
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card className="border-zinc-900/15 bg-card shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-zinc-900">
+                  <Link2 className="size-4 text-primary" aria-hidden="true" />
+                  社内メール連携
+                </CardTitle>
+                <CardDescription>
+                  Googleで取得されたメールと別に、権限判定へ使う社内メールアドレスを連携できます。
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {needsLinkedEmailPrompt ? (
+                  <p className="rounded-lg border border-amber-400/50 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    初回設定を推奨: 権限判定が想定どおりに反映されない場合は、社内メールを連携してください。
+                  </p>
+                ) : null}
+
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <p>現在の判定メール: {currentUserEmail || "未設定"}</p>
+                  <p>Google取得メール: {currentRawEmail || "未取得"}</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={linkedEmailDraft}
+                    onChange={(event) => {
+                      setLinkedEmailDraft(event.target.value);
+                      setLinkedEmailError(null);
+                      setLinkedEmailMessage(null);
+                    }}
+                    placeholder="例: name@bb-connection.com"
+                    className="max-w-sm"
+                    disabled={isSavingLinkedEmail}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void handleSaveLinkedEmail()}
+                    disabled={!canSaveLinkedEmail}
+                  >
+                    {isSavingLinkedEmail ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                    保存
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setLinkedEmailDraft("");
+                      setLinkedEmailError(null);
+                      setLinkedEmailMessage(null);
+                    }}
+                    disabled={isSavingLinkedEmail || !currentLinkedEmail}
+                  >
+                    連携解除
+                  </Button>
+                </div>
+
+                {linkedEmailMessage ? (
+                  <p className="flex items-center gap-1.5 text-sm text-emerald-700">
+                    <CheckCircle2 className="size-4" aria-hidden="true" />
+                    {linkedEmailMessage}
+                  </p>
+                ) : null}
+                {linkedEmailError ? (
+                  <p className="flex items-center gap-1.5 text-sm text-destructive">
+                    <TriangleAlert className="size-4" aria-hidden="true" />
+                    {linkedEmailError}
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
         </section>
       </Reveal>
 

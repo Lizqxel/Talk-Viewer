@@ -95,11 +95,13 @@ src/
 
 - Apps Script のサンプル実装は `docs/apps-script-webapp-template.gs` を参照
 - Web アプリ設定は「実行ユーザー: アクセスしているユーザー」を推奨
-- 「アクセスできるユーザー」は運用時に `bb-connection.com` ドメイン内に限定
+- サイトアクセスは Google アカウント/ドメイン判定ではなく、`PORTAL_ACCESS_PASSWORD` による共通パスワード認証で制御
 - フロントは起動時に `action=bootstrap` でトークデータを取得
-- 初回認証は `action=authorize` で行い、成功後は `return_to` で元ページへ自動復帰
+- 初回アクセス時はパスワード入力画面が表示され、認証成功後は同一ユーザーで再入力を省略
+- 社内権限の反映が必要な場合はホーム画面の「社内メール連携」で実効メールアドレスを設定可能
 - API URL は必ず Web アプリの `/exec` URL を使用（`/echo?user_content_key=...` は使用しない）
-- `ALLOWED_RETURN_HOSTS` に許可する戻り先ホストを設定（例: `lizqxel.github.io,localhost:3000`）
+- `PORTAL_ACCESS_PASSWORD` は Script Properties へ必須設定
+- 社内メール連携情報は Apps Script の User Properties に保存するため、追加シート作成は不要
 
 ### Closing シート設計（1 URL運用）
 
@@ -125,9 +127,9 @@ updated_by
 ### 認証トラブル時の確認
 
 1. `NEXT_PUBLIC_TALK_API_URL` が `/exec` 形式になっていることを確認
-2. 非許可アカウントでアクセスした場合は画面上に「許可されていないアカウントです」と表示されることを確認
-3. 初回アクセスで自動認証リダイレクトされるため、通常は手動で長い認証URLを開く必要なし
-4. 自動で戻らない場合のみ「認証ページを開く」から再認証
+2. Script Properties に `PORTAL_ACCESS_PASSWORD` が設定されていることを確認
+3. 初回アクセスでパスワード入力画面が表示されることを確認
+4. メールアドレス判定が想定と異なる場合は、ホーム画面から社内メール連携を設定して再読み込み
 
 ### 編集機能
 

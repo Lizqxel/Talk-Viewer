@@ -16,7 +16,7 @@ export function ApiFallbackNotice({ onRetry, reason }: ApiFallbackNoticeProps) {
         <AlertTriangle className="size-4" aria-hidden="true" />
         APIに接続できないため、ローカルの既存データを表示しています。
       </p>
-      <p className="mt-1 text-xs text-amber-800">Google認証状態またはアクセス制御設定を確認後、再読み込みしてください。</p>
+      <p className="mt-1 text-xs text-amber-800">アクセスパスワード認証または接続設定を確認後、再読み込みしてください。</p>
       {reason ? <p className="mt-1 text-xs text-amber-800">原因: {reason}</p> : null}
       {onRetry ? (
         <div className="mt-2">

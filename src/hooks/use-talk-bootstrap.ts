@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchTalkBootstrap,
   fetchTalkBootstrapViaJsonp,
-  getTalkPortalAuthorizeUrl,
   getMockBootstrapPayload,
   type TalkBootstrapPayload,
   TalkPortalApiError,
@@ -16,8 +15,6 @@ interface UseTalkBootstrapOptions {
 }
 
 const HARD_TIMEOUT_MS = 15000;
-const AUTO_AUTHORIZE_STORAGE_KEY = "talk-portal:auto-authorize-attempted";
-const AUTO_AUTHORIZE_MAX_ATTEMPTS = 2;
 const FORCE_MOCK_STORAGE_KEY = "talk-portal:force-mock-bootstrap";
 
 async function withHardTimeout<T>(
@@ -38,60 +35,6 @@ async function withHardTimeout<T>(
     if (timerId) {
       clearTimeout(timerId);
     }
-  }
-}
-
-function isAutoAuthorizeCandidate(error: TalkPortalApiError) {
-  return (
-    error.code === "AUTH_REDIRECT" ||
-    error.code === "UNAUTHENTICATED_USER" ||
-    error.code === "FORBIDDEN_DOMAIN" ||
-    error.code === "BOOTSTRAP_TIMEOUT" ||
-    error.code === "JSONP_TIMEOUT" ||
-    error.code === "JSONP_LOAD_ERROR"
-  );
-}
-
-function tryAutoAuthorizeRedirect() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  try {
-    const rawAttemptCount = Number.parseInt(
-      window.sessionStorage.getItem(AUTO_AUTHORIZE_STORAGE_KEY) ?? "0",
-      10,
-    );
-    const attemptCount = Number.isFinite(rawAttemptCount)
-      ? Math.max(0, Math.trunc(rawAttemptCount))
-      : 0;
-
-    if (attemptCount >= AUTO_AUTHORIZE_MAX_ATTEMPTS) {
-      return false;
-    }
-
-    const authorizeUrl = getTalkPortalAuthorizeUrl(window.location.href);
-    if (!authorizeUrl) {
-      return false;
-    }
-
-    window.sessionStorage.setItem(AUTO_AUTHORIZE_STORAGE_KEY, String(attemptCount + 1));
-    window.location.assign(authorizeUrl);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function clearAutoAuthorizeFlag() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.removeItem(AUTO_AUTHORIZE_STORAGE_KEY);
-  } catch {
-    // Ignore storage access errors.
   }
 }
 
@@ -148,7 +91,7 @@ function createHardTimeoutError(code: "BOOTSTRAP_TIMEOUT" | "JSONP_TIMEOUT") {
   }
 
   return new TalkPortalApiError(
-    "Apps Script API request timed out. Retry after signing in with an allowed Google account.",
+    "Apps Script API request timed out. Retry after entering the site password.",
     408,
     "BOOTSTRAP_TIMEOUT",
   );
@@ -205,7 +148,6 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
         createHardTimeoutError("BOOTSTRAP_TIMEOUT"),
       );
 
-      clearAutoAuthorizeFlag();
       setData(payload);
       setError(null);
       setIsFallback(false);
@@ -233,7 +175,6 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
             createHardTimeoutError("JSONP_TIMEOUT"),
           );
 
-          clearAutoAuthorizeFlag();
           setData(payload);
           setError(null);
           setIsFallback(false);
@@ -248,10 +189,6 @@ export function useTalkBootstrap(options?: UseTalkBootstrapOptions) {
             );
           }
         }
-      }
-
-      if (isAutoAuthorizeCandidate(finalError) && tryAutoAuthorizeRedirect()) {
-        return null;
       }
 
       setError(finalError);

@@ -3,8 +3,7 @@
  *
  * Required Script Properties:
  * - SPREADSHEET_ID
- * - ALLOWED_DOMAIN  (example: bb-connection.com)
- * - ALLOWED_EMAILS  (optional, comma-separated emails)
+ * - PORTAL_ACCESS_PASSWORD  (site access password)
  * - TALKS_SHEET     (default: Talks)
  * - EDITORS_SHEET   (default: Editors)
  * - HIGHLIGHTS_SHEET (default: DailyHighlights)
@@ -14,6 +13,10 @@
  * - ALLOWED_RETURN_HOSTS (optional, comma-separated. ex: lizqxel.github.io,localhost:3000)
  * - PREFERRED_RETURN_URL (optional, full URL. ex: https://lizqxel.github.io/Talk-Viewer/)
  */
+
+var USER_PROP_PASSWORD_MARKER_KEY = "portal-password-marker";
+var USER_PROP_PASSWORD_VERIFIED_AT_KEY = "portal-password-verified-at";
+var USER_PROP_LINKED_EMAIL_KEY = "portal-linked-email";
 
 function doGet(e) {
   const callback = getCallbackName_(e);
@@ -34,24 +37,25 @@ function doGet(e) {
 
   try {
     const action = (e && e.parameter && e.parameter.action) || "";
+    const passwordConfigured = isPortalPasswordConfigured_();
+    const passwordAuthenticated = isPasswordAuthenticated_();
+    const identity = getCurrentUserIdentity_();
 
     if (action === "whoami") {
-      const allowDebug = getDomainAllowanceDebug_(safeEmail_());
-
       return sendResponse_(
         {
           ok: true,
-          message: allowDebug.email
-            ? "判定対象のメールアドレスを取得できました"
-            : "メールアドレスを取得できませんでした。Google アカウントの状態を確認してください",
+          message: identity.effectiveEmail
+            ? "現在の実効メールアドレスを取得できました"
+            : "実効メールアドレスが未設定です。必要に応じて社内メール連携を設定してください",
           data: {
             action: "whoami",
-            email: allowDebug.email,
-            isAllowed: allowDebug.allowed,
-            matchedAllowedEmail: allowDebug.matchedAllowedEmail,
-            matchedAllowedDomain: allowDebug.matchedAllowedDomain,
-            allowedDomain: allowDebug.allowedDomain,
-            allowedEmailsCount: allowDebug.allowedEmailsCount,
+            email: identity.effectiveEmail,
+            effectiveEmail: identity.effectiveEmail,
+            rawEmail: identity.rawEmail,
+            linkedEmail: identity.linkedEmail,
+            passwordConfigured: passwordConfigured,
+            passwordAuthenticated: passwordAuthenticated,
           },
         },
         200,
@@ -59,18 +63,34 @@ function doGet(e) {
       );
     }
 
-    const userEmail = getUserEmail_();
-
-    if (!isDomainAllowed_(userEmail)) {
+    if (action === "passwordStatus") {
       return sendResponse_(
         {
-          ok: false,
-          error: {
-            code: "FORBIDDEN_DOMAIN",
-            message: "許可されたアカウントのみアクセス可能です",
+          ok: true,
+          data: {
+            passwordConfigured: passwordConfigured,
+            passwordAuthenticated: passwordAuthenticated,
+            email: identity.effectiveEmail,
+            effectiveEmail: identity.effectiveEmail,
+            rawEmail: identity.rawEmail,
+            linkedEmail: identity.linkedEmail,
           },
         },
-        403,
+        200,
+        callback,
+      );
+    }
+
+    if (action === "logoutPasswordSession") {
+      clearPasswordAuthentication_();
+      return sendResponse_(
+        {
+          ok: true,
+          data: {
+            passwordAuthenticated: false,
+          },
+        },
+        200,
         callback,
       );
     }
@@ -84,6 +104,37 @@ function doGet(e) {
 
       return htmlAuthorizeCompletedFallbackResponse_();
     }
+
+    if (!passwordConfigured) {
+      return sendResponse_(
+        {
+          ok: false,
+          error: {
+            code: "PASSWORD_NOT_CONFIGURED",
+            message:
+              "PORTAL_ACCESS_PASSWORD が未設定です。Apps Script の Script Properties にサイト共通パスワードを設定してください。",
+          },
+        },
+        500,
+        callback,
+      );
+    }
+
+    if (!passwordAuthenticated) {
+      return sendResponse_(
+        {
+          ok: false,
+          error: {
+            code: "PASSWORD_REQUIRED",
+            message: "サイトアクセスにはパスワード入力が必要です",
+          },
+        },
+        401,
+        callback,
+      );
+    }
+
+    const userEmail = identity.effectiveEmail;
 
     const canEdit = isEditor_(userEmail);
     const isAdmin = isAdmin_(userEmail);
@@ -106,11 +157,7 @@ function doGet(e) {
       return sendResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             editorPermissions: listEditorPermissions_(),
           },
@@ -128,6 +175,21 @@ function doGet(e) {
       var targetEmail = normalizeEmail_(
         e && e.parameter && e.parameter.email ? e.parameter.email : userEmail,
       );
+
+      if (!targetEmail) {
+        return sendResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_TARGET_EMAIL",
+              message:
+                "対象メールアドレスを特定できません。必要に応じて社内メール連携を設定してください。",
+            },
+          },
+          400,
+          callback,
+        );
+      }
 
       if (!isAdmin && targetEmail !== normalizeEmail_(userEmail)) {
         return sendResponse_(
@@ -158,11 +220,7 @@ function doGet(e) {
       return sendResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             closing: dashboard,
           },
@@ -199,11 +257,7 @@ function doGet(e) {
       return sendResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             alerts: listClosingInactivityAlerts_(thresholdMinutes, new Date()),
           },
@@ -243,11 +297,7 @@ function doGet(e) {
       return sendResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             closing: recordedByGet,
           },
@@ -264,7 +314,7 @@ function doGet(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "指定された action はサポートされていません（bootstrap / authorize / listEditorPermissions / whoami / closingDashboard / closingInactivityAlerts / recordClosing）",
+              "指定された action はサポートされていません（bootstrap / passwordStatus / whoami / listEditorPermissions / closingDashboard / closingInactivityAlerts / recordClosing）",
           },
         },
         400,
@@ -272,16 +322,12 @@ function doGet(e) {
       );
     }
 
-    const payload = buildBootstrapPayload_(userEmail, canEdit, isAdmin);
+    const payload = buildBootstrapPayload_(identity, canEdit, isAdmin);
 
     return sendResponse_(
       {
         ok: true,
-        user: {
-          email: userEmail,
-          canEdit: canEdit,
-          isAdmin: isAdmin,
-        },
+        user: payload.user,
         data: payload,
       },
       200,
@@ -295,7 +341,7 @@ function doGet(e) {
           error: {
             code: "UNAUTHENTICATED_USER",
             message:
-              "スプレッドシートへのアクセス権限が未付与です。action=authorize を開いて権限を許可後、再試行してください。",
+              "スプレッドシートへのアクセス権限が未付与です。Apps Script エディタで grantSpreadsheetAccess を実行して権限を付与後、再試行してください。",
           },
         },
         401,
@@ -319,25 +365,9 @@ function doGet(e) {
 
 function doPost(e) {
   var auditAction = "unknown";
+  var auditActorEmail = normalizeEmail_(safeEmail_());
 
   try {
-    const userEmail = getUserEmail_();
-    const canEdit = isEditor_(userEmail);
-    const isAdmin = isAdmin_(userEmail);
-
-    if (!isDomainAllowed_(userEmail)) {
-      return jsonResponse_(
-        {
-          ok: false,
-          error: {
-            code: "FORBIDDEN_DOMAIN",
-            message: "許可されたアカウントのみアクセス可能です",
-          },
-        },
-        403,
-      );
-    }
-
     if (!e || !e.postData || !e.postData.contents) {
       return jsonResponse_(
         {
@@ -355,7 +385,165 @@ function doPost(e) {
     const action = body.action || "";
     auditAction = action || "unknown";
 
+    if (action === "verifyPassword" || action === "portalLogin") {
+      if (!isPortalPasswordConfigured_()) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "PASSWORD_NOT_CONFIGURED",
+              message:
+                "PORTAL_ACCESS_PASSWORD が未設定です。Apps Script の Script Properties にサイト共通パスワードを設定してください。",
+            },
+          },
+          500,
+        );
+      }
+
+      var inputPassword = String(body.password || body.pass || "");
+      if (!verifyPortalPassword_(inputPassword)) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "PASSWORD_INVALID",
+              message: "パスワードが一致しません",
+            },
+          },
+          401,
+        );
+      }
+
+      var loginIdentity = getCurrentUserIdentity_();
+      var loginEmail = loginIdentity.effectiveEmail;
+      var loginCanEdit = isEditor_(loginEmail);
+      var loginIsAdmin = isAdmin_(loginEmail);
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: buildUserPayload_(
+            loginIdentity,
+            loginCanEdit,
+            loginIsAdmin,
+            getEditorDisplayNameByEmail_(loginEmail),
+          ),
+          data: {
+            passwordAuthenticated: true,
+          },
+        },
+        200,
+      );
+    }
+
+    if (action === "logoutPasswordSession") {
+      clearPasswordAuthentication_();
+      return jsonResponse_(
+        {
+          ok: true,
+          data: {
+            passwordAuthenticated: false,
+          },
+        },
+        200,
+      );
+    }
+
+    if (!isPortalPasswordConfigured_()) {
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "PASSWORD_NOT_CONFIGURED",
+            message:
+              "PORTAL_ACCESS_PASSWORD が未設定です。Apps Script の Script Properties にサイト共通パスワードを設定してください。",
+          },
+        },
+        500,
+      );
+    }
+
+    if (!isPasswordAuthenticated_()) {
+      return jsonResponse_(
+        {
+          ok: false,
+          error: {
+            code: "PASSWORD_REQUIRED",
+            message: "サイトアクセスにはパスワード入力が必要です",
+          },
+        },
+        401,
+      );
+    }
+
+    const identity = getCurrentUserIdentity_();
+    const userEmail = identity.effectiveEmail;
+    const canEdit = isEditor_(userEmail);
+    const isAdmin = isAdmin_(userEmail);
+    auditActorEmail = resolveAuditActorEmail_(identity);
+
+    if (action === "updateMyLinkedEmail" || action === "setMyLinkedEmail") {
+      var nextLinkedEmail = normalizeEmail_(
+        body.linkedEmail || body.email || body.corporateEmail || body.corporate_email,
+      );
+
+      if (nextLinkedEmail && !isValidEmailAddress_(nextLinkedEmail)) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_LINKED_EMAIL",
+              message: "連携するメールアドレスの形式が不正です",
+            },
+          },
+          400,
+        );
+      }
+
+      if (nextLinkedEmail) {
+        upsertMyLinkedEmail_(nextLinkedEmail);
+      } else {
+        clearMyLinkedEmail_();
+      }
+
+      var updatedIdentity = getCurrentUserIdentity_();
+      var updatedEmail = updatedIdentity.effectiveEmail;
+      var updatedCanEdit = isEditor_(updatedEmail);
+      var updatedIsAdmin = isAdmin_(updatedEmail);
+
+      return jsonResponse_(
+        {
+          ok: true,
+          user: buildUserPayload_(
+            updatedIdentity,
+            updatedCanEdit,
+            updatedIsAdmin,
+            getEditorDisplayNameByEmail_(updatedEmail),
+          ),
+          data: {
+            linkedEmail: updatedIdentity.linkedEmail || undefined,
+            effectiveEmail: updatedIdentity.effectiveEmail || undefined,
+          },
+        },
+        200,
+      );
+    }
+
     if (action === "updateMyDisplayName" || action === "setMyDisplayName") {
+      if (!userEmail) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_EFFECTIVE_EMAIL",
+              message:
+                "表示名を保存するためのメールアドレスを特定できません。先に社内メール連携を設定してください。",
+            },
+          },
+          400,
+        );
+      }
+
       var nextName = normalizeDisplayName_(
         body.name || body.displayName || body.display_name || body.userName || body.user_name,
       );
@@ -374,17 +562,12 @@ function doPost(e) {
       }
 
       var profile = upsertOwnDisplayName_(userEmail, nextName, userEmail);
-      appendAudit_("updateMyDisplayName", "", userEmail, "ok", profile.name || "(empty)");
+      appendAudit_("updateMyDisplayName", "", auditActorEmail, "ok", profile.name || "(empty)");
 
       return jsonResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            name: profile.name || undefined,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin, profile.name || undefined),
           data: {
             profile: profile,
           },
@@ -422,15 +605,11 @@ function doPost(e) {
       }
 
       const updated = upsertEditorPermission_(editor, userEmail);
-      appendAudit_("upsertEditorPermission", "", userEmail, "ok", updated.email);
+      appendAudit_("upsertEditorPermission", "", auditActorEmail, "ok", updated.email);
 
       return jsonResponse_({
         ok: true,
-        user: {
-          email: userEmail,
-          canEdit: canEdit,
-          isAdmin: isAdmin,
-        },
+        user: buildUserPayload_(identity, canEdit, isAdmin),
         data: {
           editor: updated,
         },
@@ -468,15 +647,11 @@ function doPost(e) {
       }
 
       var deleted = deleteEditorPermission_(targetEmail, userEmail);
-      appendAudit_("deleteEditorPermission", "", userEmail, "ok", deleted.email);
+      appendAudit_("deleteEditorPermission", "", auditActorEmail, "ok", deleted.email);
 
       return jsonResponse_({
         ok: true,
-        user: {
-          email: userEmail,
-          canEdit: canEdit,
-          isAdmin: isAdmin,
-        },
+        user: buildUserPayload_(identity, canEdit, isAdmin),
         data: {
           deleted: deleted,
         },
@@ -512,16 +687,12 @@ function doPost(e) {
       }
 
       var updatedHighlight = upsertDailyHighlight_(highlight, userEmail);
-      appendAudit_("upsertDailyHighlight", "", userEmail, "ok", updatedHighlight.id);
+      appendAudit_("upsertDailyHighlight", "", auditActorEmail, "ok", updatedHighlight.id);
 
       return jsonResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             highlight: updatedHighlight,
           },
@@ -569,11 +740,7 @@ function doPost(e) {
 
       return jsonResponse_({
         ok: true,
-        user: {
-          email: userEmail,
-          canEdit: canEdit,
-          isAdmin: isAdmin,
-        },
+        user: buildUserPayload_(identity, canEdit, isAdmin),
         data: {
           talkId: deletedTalk.talkId,
           revision: deletedTalk.revision,
@@ -608,11 +775,7 @@ function doPost(e) {
       return jsonResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             closing: recorded,
           },
@@ -646,11 +809,7 @@ function doPost(e) {
       return jsonResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             closing: updated,
           },
@@ -660,6 +819,20 @@ function doPost(e) {
     }
 
     if (action === "resetClosingDaily") {
+      if (!userEmail && !body.email) {
+        return jsonResponse_(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_TARGET_EMAIL",
+              message:
+                "対象メールアドレスを特定できません。必要に応じて社内メール連携を設定してください。",
+            },
+          },
+          400,
+        );
+      }
+
       var targetEmail = normalizeEmail_(body.email || userEmail);
       if (!isAdmin && targetEmail !== normalizeEmail_(userEmail)) {
         return jsonResponse_(
@@ -681,11 +854,7 @@ function doPost(e) {
       return jsonResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             closing: resetDaily,
           },
@@ -721,11 +890,7 @@ function doPost(e) {
       return jsonResponse_(
         {
           ok: true,
-          user: {
-            email: userEmail,
-            canEdit: canEdit,
-            isAdmin: isAdmin,
-          },
+          user: buildUserPayload_(identity, canEdit, isAdmin),
           data: {
             closing: resetMonthly,
           },
@@ -741,7 +906,7 @@ function doPost(e) {
           error: {
             code: "INVALID_ACTION",
             message:
-              "updateTalk / deleteTalk / upsertEditorPermission / deleteEditorPermission / upsertDailyHighlight / updateMyDisplayName / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
+              "verifyPassword / updateMyLinkedEmail / updateMyDisplayName / updateTalk / deleteTalk / upsertEditorPermission / deleteEditorPermission / upsertDailyHighlight / recordClosing / updateClosingStats / resetClosingDaily / resetClosingMonthly をサポートしています",
           },
         },
         400,
@@ -777,15 +942,11 @@ function doPost(e) {
 
     const result = upsertTalk_(talk, userEmail);
 
-    appendAudit_("updateTalk", talk.id, userEmail, "ok", "revision=" + result.revision);
+    appendAudit_("updateTalk", talk.id, auditActorEmail, "ok", "revision=" + result.revision);
 
     return jsonResponse_({
       ok: true,
-      user: {
-        email: userEmail,
-        canEdit: true,
-        isAdmin: isAdmin,
-      },
+      user: buildUserPayload_(identity, canEdit, isAdmin),
       data: {
         talkId: talk.id,
         revision: result.revision,
@@ -801,16 +962,15 @@ function doPost(e) {
           error: {
             code: "UNAUTHENTICATED_USER",
             message:
-              "スプレッドシートへのアクセス権限が未付与です。action=authorize を開いて権限を許可後、再試行してください。",
+              "スプレッドシートへのアクセス権限が未付与です。Apps Script エディタで grantSpreadsheetAccess を実行して権限を付与後、再試行してください。",
           },
         },
         401,
       );
     }
 
-    const email = safeEmail_();
     try {
-      appendAudit_(auditAction, "", email, "error", errorText);
+      appendAudit_(auditAction, "", auditActorEmail, "error", errorText);
     } catch (auditErr) {
       // Audit failure must not break API responses.
     }
@@ -828,7 +988,8 @@ function doPost(e) {
   }
 }
 
-function buildBootstrapPayload_(userEmail, canEdit, isAdmin) {
+function buildBootstrapPayload_(identity, canEdit, isAdmin) {
+  const userEmail = identity.effectiveEmail;
   const talks = listTalks_();
   const dailyHighlights = listDailyHighlights_();
   const userName = getEditorDisplayNameByEmail_(userEmail);
@@ -876,12 +1037,7 @@ function buildBootstrapPayload_(userEmail, canEdit, isAdmin) {
     productLabels: fallbackProductLabels,
     sceneLabels: fallbackSceneLabels,
     talks: talks,
-    user: {
-      email: userEmail,
-      name: userName || undefined,
-      canEdit: canEdit,
-      isAdmin: isAdmin,
-    },
+    user: buildUserPayload_(identity, canEdit, isAdmin, userName || undefined),
   };
 }
 
@@ -1246,6 +1402,166 @@ function normalizeEmail_(email) {
 
 function normalizeDisplayName_(name) {
   return String(name || "").trim();
+}
+
+function buildUserPayload_(identity, canEdit, isAdmin, name) {
+  var payload = {
+    email: identity && identity.effectiveEmail ? identity.effectiveEmail : undefined,
+    rawEmail: identity && identity.rawEmail ? identity.rawEmail : undefined,
+    linkedEmail: identity && identity.linkedEmail ? identity.linkedEmail : undefined,
+    canEdit: Boolean(canEdit),
+    isAdmin: Boolean(isAdmin),
+  };
+
+  var normalizedName = normalizeDisplayName_(name);
+  if (normalizedName) {
+    payload.name = normalizedName;
+  }
+
+  return payload;
+}
+
+function resolveAuditActorEmail_(identity) {
+  if (identity && identity.effectiveEmail) {
+    return identity.effectiveEmail;
+  }
+
+  if (identity && identity.rawEmail) {
+    return identity.rawEmail;
+  }
+
+  return "unknown";
+}
+
+function isValidEmailAddress_(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function getCurrentUserIdentity_() {
+  var rawEmail = normalizeEmail_(safeEmail_());
+  var linkedEmail = getMyLinkedEmail_();
+  var effectiveEmail = linkedEmail || rawEmail;
+
+  return {
+    rawEmail: rawEmail,
+    linkedEmail: linkedEmail,
+    effectiveEmail: effectiveEmail,
+  };
+}
+
+function getMyLinkedEmail_() {
+  var raw = normalizeEmail_(PropertiesService.getUserProperties().getProperty(USER_PROP_LINKED_EMAIL_KEY));
+  if (!raw || !isValidEmailAddress_(raw)) {
+    return "";
+  }
+
+  return raw;
+}
+
+function upsertMyLinkedEmail_(email) {
+  var normalized = normalizeEmail_(email);
+  if (!normalized || !isValidEmailAddress_(normalized)) {
+    throw new Error("連携メールアドレスが不正です");
+  }
+
+  PropertiesService.getUserProperties().setProperty(USER_PROP_LINKED_EMAIL_KEY, normalized);
+}
+
+function clearMyLinkedEmail_() {
+  PropertiesService.getUserProperties().deleteProperty(USER_PROP_LINKED_EMAIL_KEY);
+}
+
+function getPortalPassword_() {
+  return String(prop_("PORTAL_ACCESS_PASSWORD", "")).trim();
+}
+
+function isPortalPasswordConfigured_() {
+  return Boolean(getPortalPassword_());
+}
+
+function getPasswordMarkerByValue_(value) {
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ""));
+  var hex = "";
+
+  for (var i = 0; i < digest.length; i += 1) {
+    var part = digest[i];
+    if (part < 0) {
+      part += 256;
+    }
+
+    var partHex = part.toString(16);
+    if (partHex.length === 1) {
+      partHex = "0" + partHex;
+    }
+
+    hex += partHex;
+  }
+
+  return hex;
+}
+
+function getExpectedPasswordMarker_() {
+  if (!isPortalPasswordConfigured_()) {
+    return "";
+  }
+
+  return getPasswordMarkerByValue_(getPortalPassword_());
+}
+
+function isPasswordAuthenticated_() {
+  if (!isPortalPasswordConfigured_()) {
+    return false;
+  }
+
+  var expectedMarker = getExpectedPasswordMarker_();
+  if (!expectedMarker) {
+    return false;
+  }
+
+  var currentMarker =
+    String(PropertiesService.getUserProperties().getProperty(USER_PROP_PASSWORD_MARKER_KEY) || "").trim();
+
+  return currentMarker === expectedMarker;
+}
+
+function verifyPortalPassword_(inputPassword) {
+  if (!isPortalPasswordConfigured_()) {
+    return false;
+  }
+
+  var expectedPassword = getPortalPassword_();
+  var normalizedInput = String(inputPassword || "");
+
+  if (!secureCompareText_(normalizedInput, expectedPassword)) {
+    return false;
+  }
+
+  var props = PropertiesService.getUserProperties();
+  props.setProperty(USER_PROP_PASSWORD_MARKER_KEY, getExpectedPasswordMarker_());
+  props.setProperty(USER_PROP_PASSWORD_VERIFIED_AT_KEY, formatTokyoDateTime_(new Date()));
+
+  return true;
+}
+
+function clearPasswordAuthentication_() {
+  var props = PropertiesService.getUserProperties();
+  props.deleteProperty(USER_PROP_PASSWORD_MARKER_KEY);
+  props.deleteProperty(USER_PROP_PASSWORD_VERIFIED_AT_KEY);
+}
+
+function secureCompareText_(a, b) {
+  var left = String(a || "");
+  var right = String(b || "");
+  var maxLength = Math.max(left.length, right.length);
+  var diff = left.length === right.length ? 0 : 1;
+
+  for (var i = 0; i < maxLength; i += 1) {
+    var leftCode = i < left.length ? left.charCodeAt(i) : 0;
+    var rightCode = i < right.length ? right.charCodeAt(i) : 0;
+    diff |= leftCode ^ rightCode;
+  }
+
+  return diff === 0;
 }
 
 function findHeaderIndex_(idx, keys) {
@@ -2099,105 +2415,6 @@ function formatTokyoMonthKey_(date) {
   return Utilities.formatDate(toTokyoDate_(date), "Asia/Tokyo", "yyyy-MM");
 }
 
-function isDomainAllowed_(email) {
-  return getDomainAllowanceDebug_(email).allowed;
-}
-
-function normalizeDomainToken_(value) {
-  var raw = String(value || "")
-    .toLowerCase()
-    .trim();
-  if (!raw) {
-    return "";
-  }
-
-  raw = raw.replace(/^https?:\/\//, "");
-
-  if (raw.indexOf("/") !== -1) {
-    raw = raw.split("/")[0];
-  }
-
-  if (raw.indexOf("?") !== -1) {
-    raw = raw.split("?")[0];
-  }
-
-  if (raw.indexOf("#") !== -1) {
-    raw = raw.split("#")[0];
-  }
-
-  if (raw.indexOf("@") !== -1) {
-    var parts = raw.split("@");
-    raw = parts[parts.length - 1];
-  }
-
-  raw = raw.replace(/^@+/, "").replace(/\.+$/, "");
-
-  if (raw.indexOf(":") !== -1) {
-    raw = raw.split(":")[0];
-  }
-
-  return raw.trim();
-}
-
-function extractEmailDomain_(email) {
-  var normalizedEmail = normalizeEmail_(email);
-  var match = normalizedEmail.match(/@([^@]+)$/);
-  return match ? normalizeDomainToken_(match[1]) : "";
-}
-
-function parseAllowedDomains_() {
-  var rawDomain = prop_("ALLOWED_DOMAIN", "");
-  var tokens = String(rawDomain || "").split(/[\n,]/);
-  var seen = {};
-  var domains = [];
-
-  for (var i = 0; i < tokens.length; i += 1) {
-    var normalized = normalizeDomainToken_(tokens[i]);
-    if (!normalized || seen[normalized]) {
-      continue;
-    }
-
-    seen[normalized] = true;
-    domains.push(normalized);
-  }
-
-  return domains;
-}
-
-function getDomainAllowanceDebug_(email) {
-  const normalizedEmail = normalizeEmail_(email);
-
-  const allowedEmailsText = prop_("ALLOWED_EMAILS", "");
-  const allowedEmails = allowedEmailsText
-    .split(",")
-    .map(function (item) {
-      return normalizeEmail_(item);
-    })
-    .filter(function (item) {
-      return item !== "";
-    });
-
-  const matchedAllowedEmail =
-    normalizedEmail !== "" && allowedEmails.indexOf(normalizedEmail) !== -1;
-
-  const allowedDomains = parseAllowedDomains_();
-  const emailDomain = extractEmailDomain_(normalizedEmail);
-  const matchedAllowedDomain = Boolean(
-    emailDomain !== "" && allowedDomains.indexOf(emailDomain) !== -1,
-  );
-
-  return {
-    email: normalizedEmail,
-    emailDomain: emailDomain,
-    allowedDomain: allowedDomains.join(","),
-    allowedDomainsCount: allowedDomains.length,
-    allowedEmailsCount: allowedEmails.length,
-    matchedAllowedEmail: matchedAllowedEmail,
-    matchedAllowedDomain: matchedAllowedDomain,
-    allowed: matchedAllowedEmail || matchedAllowedDomain,
-  };
-}
-
 function getUserEmail_() {
   const email = safeEmail_();
   if (!email) {
@@ -2252,9 +2469,16 @@ function grantSpreadsheetAccess() {
   return result;
 }
 
-// Manual helper for Apps Script editor: verify which account is evaluated by domain checks.
+// Manual helper for Apps Script editor: verify current identity and password-gate state.
 function debugCurrentAccountAllowance() {
-  var debug = getDomainAllowanceDebug_(safeEmail_());
+  var identity = getCurrentUserIdentity_();
+  var debug = {
+    rawEmail: identity.rawEmail,
+    linkedEmail: identity.linkedEmail,
+    effectiveEmail: identity.effectiveEmail,
+    passwordConfigured: isPortalPasswordConfigured_(),
+    passwordAuthenticated: isPasswordAuthenticated_(),
+  };
   Logger.log(JSON.stringify(debug));
   return debug;
 }

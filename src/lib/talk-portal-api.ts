@@ -29,6 +29,8 @@ import {
 
 export interface TalkPortalUser {
   email?: string;
+  rawEmail?: string;
+  linkedEmail?: string;
   name?: string;
   canEdit?: boolean;
   isAdmin?: boolean;
@@ -67,6 +69,20 @@ export interface ScriptEditorPermissionDeleteResult {
 export interface UpdateMyDisplayNameResult {
   email?: string;
   name?: string;
+  transport: "fetch" | "no-cors";
+}
+
+export interface VerifyPortalPasswordResult {
+  passwordAuthenticated: boolean;
+  user?: TalkPortalUser;
+  transport: "fetch" | "no-cors";
+}
+
+export interface UpdateMyLinkedEmailResult {
+  linkedEmail?: string;
+  effectiveEmail?: string;
+  rawEmail?: string;
+  user?: TalkPortalUser;
   transport: "fetch" | "no-cors";
 }
 
@@ -358,6 +374,8 @@ function resolveUserFromRecord(source: LooseRecord | null): TalkPortalUser | und
   }
 
   const email = pickFirstValue(source, ["email", "メール"]);
+  const rawEmail = pickFirstValue(source, ["rawEmail", "raw_email", "resolvedEmail", "resolved_email"]);
+  const linkedEmail = pickFirstValue(source, ["linkedEmail", "linked_email", "corporateEmail", "corporate_email"]);
   const name = pickFirstValue(source, ["name", "displayName", "display_name", "userName", "氏名", "名前"]);
   const canEdit = pickFirstValue(source, ["canEdit", "編集可", "can_edit"]);
   const isAdmin = pickFirstValue(source, ["isAdmin", "管理者", "is_admin"]);
@@ -365,6 +383,8 @@ function resolveUserFromRecord(source: LooseRecord | null): TalkPortalUser | und
 
   return {
     email: email ? String(email) : undefined,
+    rawEmail: rawEmail ? String(rawEmail) : undefined,
+    linkedEmail: linkedEmail ? String(linkedEmail) : undefined,
     name: normalizedName || undefined,
     canEdit: toOptionalBoolean(canEdit),
     isAdmin: toOptionalBoolean(isAdmin),
@@ -893,13 +913,8 @@ function assertEnvelopeOk(raw: unknown, fallbackMessage: string) {
 }
 
 function assertAllowedViewer(payload: TalkBootstrapPayload) {
-  if (!payload.user?.email) {
-    throw new TalkPortalApiError(
-      "ユーザー認証情報を取得できませんでした。許可されたGoogleアカウントで再ログインしてください。",
-      401,
-      "UNAUTHENTICATED_USER",
-    );
-  }
+  // Password gate now controls site access. Email may be empty until linked.
+  void payload;
 }
 
 async function parseJsonResponse(response: Response): Promise<unknown> {
@@ -912,7 +927,7 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
   const trimmed = bodyText.trim();
   if (trimmed.startsWith("<!DOCTYPE html") || trimmed.startsWith("<html") || trimmed.includes("ServiceLogin")) {
     throw new TalkPortalApiError(
-      "Google認証ページへリダイレクトされました。許可されたGoogleアカウントで再ログインして再試行してください。",
+      "認証ページへリダイレクトされました。画面の手順を完了後に再試行してください。",
       response.status || 401,
       "AUTH_REDIRECT",
     );
@@ -941,6 +956,10 @@ export function getTalkPortalAuthorizeUrl(returnTo?: string) {
   }
   endpoint.searchParams.set("_ts", String(Date.now()));
   return endpoint.toString();
+}
+
+function isValidEmailAddress(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function createTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number) {
@@ -1010,7 +1029,7 @@ export async function fetchTalkBootstrap(signal?: AbortSignal): Promise<TalkBoot
   } catch (caught) {
     if (isAbortError(caught) && timeoutSignal.didTimeout()) {
       throw new TalkPortalApiError(
-        "Apps Script API の応答がタイムアウトしました。許可されたGoogleアカウントで認証後に再試行してください。",
+        "Apps Script API の応答がタイムアウトしました。パスワード認証後に再試行してください。",
         408,
         "BOOTSTRAP_TIMEOUT",
       );
@@ -1601,6 +1620,197 @@ export async function upsertScriptEditorPermission(
       canEdit: savedPermission.canEdit,
       isActive: savedPermission.isActive,
       isAdmin: savedPermission.isAdmin,
+    };
+  }
+}
+
+export async function verifyPortalPasswordByApi(
+  passwordInput: string,
+): Promise<VerifyPortalPasswordResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const password = String(passwordInput ?? "").trim();
+  if (!password) {
+    throw new TalkPortalApiError("パスワードを入力してください", 400, "PASSWORD_REQUIRED");
+  }
+
+  const endpoint = new URL(API_URL);
+  const body = JSON.stringify({
+    action: "verifyPassword",
+    password,
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "パスワード認証に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "パスワード認証に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    return {
+      passwordAuthenticated: true,
+      user: resolveUser(json),
+      transport: "fetch",
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "パスワード認証リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const verification = await fetchTalkBootstrapViaJsonp();
+    return {
+      passwordAuthenticated: true,
+      user: verification.user,
+      transport: "no-cors",
+    };
+  }
+}
+
+export async function updateMyLinkedEmailByApi(
+  emailInput: string,
+): Promise<UpdateMyLinkedEmailResult> {
+  if (!API_URL) {
+    throw new TalkPortalApiError(
+      "NEXT_PUBLIC_TALK_API_URL が設定されていません",
+      500,
+      "MISSING_API_URL",
+    );
+  }
+
+  const linkedEmail = normalizeSingleLine(String(emailInput ?? "")).toLowerCase();
+  if (linkedEmail && !isValidEmailAddress(linkedEmail)) {
+    throw new TalkPortalApiError(
+      "連携する社内メールアドレスの形式が不正です",
+      400,
+      "INVALID_LINKED_EMAIL",
+    );
+  }
+
+  const endpoint = new URL(API_URL);
+  const body = JSON.stringify({
+    action: "updateMyLinkedEmail",
+    linkedEmail,
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "application/json",
+      },
+      body,
+    });
+
+    const json = await parseJsonResponse(response);
+    assertEnvelopeOk(json, "社内メール連携の更新に失敗しました");
+
+    if (!response.ok) {
+      throw new TalkPortalApiError(
+        toMessage(json, "社内メール連携の更新に失敗しました"),
+        response.status,
+        toCode(json, "HTTP_ERROR"),
+      );
+    }
+
+    const user = resolveUser(json);
+    return {
+      linkedEmail: user?.linkedEmail,
+      effectiveEmail: user?.email,
+      rawEmail: user?.rawEmail,
+      user,
+      transport: "fetch",
+    };
+  } catch (caught) {
+    const canRetryWithNoCors =
+      caught instanceof TypeError ||
+      (caught instanceof TalkPortalApiError &&
+        (caught.code === "NETWORK_ERROR" ||
+          caught.code === "AUTH_REDIRECT" ||
+          caught.code === "INVALID_JSON" ||
+          caught.code === "HTTP_ERROR"));
+
+    if (!canRetryWithNoCors) {
+      throw caught;
+    }
+
+    try {
+      await fetch(endpoint.toString(), {
+        method: "POST",
+        mode: "no-cors",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+        },
+        body,
+      });
+    } catch {
+      throw new TalkPortalApiError(
+        "社内メール連携更新リクエストを送信できませんでした",
+        0,
+        "POST_NETWORK_ERROR",
+      );
+    }
+
+    const verification = await fetchTalkBootstrapViaJsonp();
+    return {
+      linkedEmail: verification.user?.linkedEmail,
+      effectiveEmail: verification.user?.email,
+      rawEmail: verification.user?.rawEmail,
+      user: verification.user,
+      transport: "no-cors",
     };
   }
 }
