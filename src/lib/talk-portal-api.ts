@@ -186,7 +186,23 @@ export class TalkPortalApiError extends Error {
   }
 }
 
-const API_URL = process.env.NEXT_PUBLIC_TALK_API_URL?.trim() ?? "";
+function normalizeAppsScriptApiUrl(rawUrl: string) {
+  const normalizedInput = String(rawUrl || "").trim();
+  if (!normalizedInput) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(normalizedInput);
+    // Normalize domain-scoped URL (/a/macros/<domain>/...) to public URL (/macros/...).
+    parsed.pathname = parsed.pathname.replace(/^\/a\/macros\/[^/]+\/s\//, "/macros/s/");
+    return parsed.toString();
+  } catch {
+    return normalizedInput;
+  }
+}
+
+const API_URL = normalizeAppsScriptApiUrl(process.env.NEXT_PUBLIC_TALK_API_URL?.trim() ?? "");
 const BOOTSTRAP_FETCH_TIMEOUT_MS = 12000;
 const SCRIPT_ACTIVITY_HIGHLIGHT_TITLE = "スクリプト更新通知";
 const SCRIPT_ACTIVITY_HIGHLIGHT_KEEP_LIMIT = 8;
@@ -1149,7 +1165,7 @@ export async function fetchTalkBootstrapViaJsonp(
     script.onerror = () => {
       finishReject(
         new TalkPortalApiError(
-          "JSONP読み込みに失敗しました（認証リダイレクトの可能性）",
+          "JSONP読み込みに失敗しました。アクセス設定または Web アプリ公開設定を確認してください。",
           0,
           "JSONP_LOAD_ERROR",
         ),
@@ -1242,7 +1258,7 @@ async function fetchScriptEditorPermissionsViaJsonp(
     script.onerror = () => {
       finishReject(
         new TalkPortalApiError(
-          "JSONP読み込みに失敗しました（認証リダイレクトの可能性）",
+          "JSONP読み込みに失敗しました。アクセス設定または Web アプリ公開設定を確認してください。",
           0,
           "JSONP_LOAD_ERROR",
         ),
@@ -1706,10 +1722,9 @@ export async function verifyPortalPasswordByApi(
       );
     }
 
-    const verification = await fetchTalkBootstrapViaJsonp();
     return {
       passwordAuthenticated: true,
-      user: verification.user,
+      user: undefined,
       transport: "no-cors",
     };
   }
@@ -2450,7 +2465,7 @@ async function fetchJsonpEnvelopeByAction(
     script.onerror = () => {
       finishReject(
         new TalkPortalApiError(
-          "JSONP読み込みに失敗しました（認証リダイレクトの可能性）",
+          "JSONP読み込みに失敗しました。アクセス設定または Web アプリ公開設定を確認してください。",
           0,
           "JSONP_LOAD_ERROR",
         ),

@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KeyRound, Loader2, RefreshCw, ShieldAlert } from "lucide-react";
 
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { verifyPortalPasswordByApi } from "@/lib/talk-portal-api";
+import { getTalkPortalAuthorizeUrl, verifyPortalPasswordByApi } from "@/lib/talk-portal-api";
+
+const AUTH_INIT_QUERY_KEY = "talkAuthInit";
+const AUTO_AUTH_ATTEMPT_STORAGE_KEY = "talk-portal:auto-auth-init-attempted";
 
 function toErrorMessage(caught: unknown) {
   if (caught instanceof Error) {
@@ -37,6 +40,36 @@ export function PasswordAccessGate() {
     !isLoading &&
     !data &&
     (isPasswordRequired || isPasswordNotConfigured || isAuthFlowIssue);
+  const authorizeUrl = useMemo(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    const returnUrl = new URL(window.location.href);
+    returnUrl.searchParams.set(AUTH_INIT_QUERY_KEY, "1");
+    return getTalkPortalAuthorizeUrl(returnUrl.toString());
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthFlowIssue) {
+      return;
+    }
+
+    if (!authorizeUrl || typeof window === "undefined") {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const alreadyInitialized = url.searchParams.get(AUTH_INIT_QUERY_KEY) === "1";
+    const attempted = window.sessionStorage.getItem(AUTO_AUTH_ATTEMPT_STORAGE_KEY) === "1";
+
+    if (alreadyInitialized || attempted) {
+      return;
+    }
+
+    window.sessionStorage.setItem(AUTO_AUTH_ATTEMPT_STORAGE_KEY, "1");
+    window.location.assign(authorizeUrl);
+  }, [authorizeUrl, isAuthFlowIssue]);
 
   if (!shouldRenderGate) {
     return null;
@@ -86,11 +119,26 @@ export function PasswordAccessGate() {
         <CardContent className="space-y-4">
           {isAuthFlowIssue ? (
             <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-              <p className="font-medium">認証フローの取得に失敗しました</p>
+              <p className="font-medium">認証状態の確認に失敗しました</p>
               <p className="mt-1 text-xs text-amber-100/90">
-                先にパスワードを入力して再試行してください。改善しない場合は Apps Script の Web アプリ設定と
-                デプロイURLを確認してください。
+                初回アクセス時は Google の認可確認画面が表示される場合があります。表示されたら画面の案内に沿って
+                許可を完了し、その後にパスワードを入力してください。
               </p>
+              {authorizeUrl ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-2 border-amber-300/60 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-950"
+                  onClick={() => {
+                    if (typeof window === "undefined") {
+                      return;
+                    }
+                    window.location.assign(authorizeUrl);
+                  }}
+                >
+                  Google 認可画面を開く
+                </Button>
+              ) : null}
             </div>
           ) : null}
 
@@ -128,6 +176,7 @@ export function PasswordAccessGate() {
               <Button
                 type="button"
                 variant="outline"
+                className="border-zinc-500/60 bg-zinc-900 text-zinc-100 hover:bg-zinc-800 hover:text-zinc-100"
                 disabled={isSubmitting}
                 onClick={() => {
                   void reload();
