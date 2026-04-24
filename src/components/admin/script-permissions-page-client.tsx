@@ -25,6 +25,7 @@ import {
   type ScriptEditorPermission,
   upsertScriptEditorPermission,
 } from "@/lib/talk-portal-api";
+import { formatJapaneseDateTime } from "@/lib/date-time";
 import { cn } from "@/lib/utils";
 
 const defaultFormState = {
@@ -817,7 +818,7 @@ export function ScriptPermissionsPageClient() {
                       <td className="px-3 py-2">
                         <Badge variant={item.isAdmin ? "default" : "outline"}>{item.isAdmin ? "TRUE" : "FALSE"}</Badge>
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{item.updatedAt ?? "-"}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">{formatJapaneseDateTime(item.updatedAt)}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{item.updatedBy ?? "-"}</td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap items-center gap-1.5">

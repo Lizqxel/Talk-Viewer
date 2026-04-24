@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { formatJapaneseDateTime } from "@/lib/date-time";
 import { type Talk, type TalkCategory, type TalkDifficulty, type TalkProduct, type TalkScene } from "@/types/talk";
 
 interface TalksExplorerProps {
@@ -392,7 +393,7 @@ function TalkCard({
       <CardHeader>
         <div className="mb-1 flex items-center justify-between gap-2">
           <Badge variant="secondary">{productLabel}</Badge>
-          <span className="text-xs text-muted-foreground">更新: {talk.updatedAt}</span>
+          <span className="text-xs text-muted-foreground">更新: {formatJapaneseDateTime(talk.updatedAt)}</span>
         </div>
         <CardTitle className="text-base leading-snug">{talk.title}</CardTitle>
         <CardDescription className="line-clamp-2">{talk.summary}</CardDescription>
@@ -461,7 +462,7 @@ function TalkListItem({
             </div>
           </div>
           <div className="flex flex-col items-start gap-2 md:items-end">
-            <span className="text-xs text-muted-foreground">更新: {talk.updatedAt}</span>
+            <span className="text-xs text-muted-foreground">更新: {formatJapaneseDateTime(talk.updatedAt)}</span>
             <div className="flex flex-wrap items-center gap-3">
               <motion.span whileHover={{ x: 2 }} transition={{ duration: 0.2, ease: "easeOut" }}>
                 <Link

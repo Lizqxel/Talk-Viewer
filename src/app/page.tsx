@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { formatJapaneseDateTime } from "@/lib/date-time";
 import { updateMyDisplayNameByApi, updateMyLinkedEmailByApi } from "@/lib/talk-portal-api";
 
 function toErrorMessage(caught: unknown) {
@@ -431,7 +432,7 @@ export default function HomePage() {
                             </Badge>
                           </div>
                           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
-                          <p className="mt-1.5 text-[11px] text-zinc-500">{item.date || "日付未設定"}</p>
+                          <p className="mt-1.5 text-[11px] text-zinc-500">{formatJapaneseDateTime(item.date, "日付未設定")}</p>
                         </div>
                       );
 
