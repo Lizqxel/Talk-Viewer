@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, CornerDownRight, GitBranch, MessageCircleReply } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { SectionPointAccordion } from "@/components/talk/section-point-accordion";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { DEFAULT_OUT_REPLIES_BY_NODE_ID } from "@/lib/default-out-replies";
+import { resolveSalesCommentTemplate } from "@/lib/sales-comment-template";
 import { HIKARI_SCRIPT_SECTION_DEFS } from "@/lib/talk-sections";
 import { type TalkBranchGuide, type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
 
@@ -16,6 +18,8 @@ interface TalkScriptFlowProps {
   rootNodeIds: string[];
   sectionDefs?: TalkSectionDef[];
   sectionTitleOverrides?: Record<string, string>;
+  showSalesCommentComposer?: boolean;
+  salesCommentTemplate?: string;
 }
 
 type ScriptSection = {
@@ -31,6 +35,39 @@ type BranchGuideEntry = {
   action: string;
   branches?: BranchGuideEntry[];
 };
+
+type SalesCommentDraft = {
+  text: string;
+  history: string[];
+  historyIndex: number;
+};
+
+function createSalesCommentDraft(templateText: string): SalesCommentDraft {
+  return {
+    text: templateText,
+    history: [templateText],
+    historyIndex: 0,
+  };
+}
+
+function pushSalesCommentDraft(prev: SalesCommentDraft, nextText: string): SalesCommentDraft {
+  const currentText = prev.history[prev.historyIndex] ?? prev.text;
+
+  if (currentText === nextText) {
+    return {
+      ...prev,
+      text: nextText,
+    };
+  }
+
+  const nextHistory = [...prev.history.slice(0, prev.historyIndex + 1), nextText];
+
+  return {
+    text: nextText,
+    history: nextHistory,
+    historyIndex: nextHistory.length - 1,
+  };
+}
 
 function renderLineWithCommaBreak(text: string, keyPrefix: string) {
   const parts = text.split("、");
@@ -116,7 +153,14 @@ function getBranchGuidesForLine(node: TalkNode, lineNumber: number) {
     }));
 }
 
-export function TalkScriptFlow({ nodes, rootNodeIds, sectionDefs, sectionTitleOverrides }: TalkScriptFlowProps) {
+export function TalkScriptFlow({
+  nodes,
+  rootNodeIds,
+  sectionDefs,
+  sectionTitleOverrides,
+  showSalesCommentComposer,
+  salesCommentTemplate,
+}: TalkScriptFlowProps) {
   const rootNodeId = rootNodeIds[0];
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -160,6 +204,8 @@ export function TalkScriptFlow({ nodes, rootNodeIds, sectionDefs, sectionTitleOv
 
   const [manualOpenSectionIds, setManualOpenSectionIds] = useState<string[]>([]);
   const [autoOpenSectionId, setAutoOpenSectionId] = useState<string | null>(displaySections[0]?.id ?? null);
+  const shouldShowSalesCommentComposer = Boolean(showSalesCommentComposer);
+  const resolvedSalesCommentTemplate = resolveSalesCommentTemplate(salesCommentTemplate);
 
   if (!rootNodeId) {
     return null;
@@ -214,11 +260,13 @@ export function TalkScriptFlow({ nodes, rootNodeIds, sectionDefs, sectionTitleOv
           </CardContent>
         </Card>
 
-        <div className="sm:sticky sm:top-20">
+        <div className="space-y-3 sm:sticky sm:top-20">
           <OutReplyPanel
             sections={displaySections}
             manualOpenSectionIds={manualOpenSectionIds}
             autoOpenSectionId={autoOpenSectionId}
+            showSalesCommentComposer={shouldShowSalesCommentComposer}
+            salesCommentTemplate={resolvedSalesCommentTemplate}
             onOpenSectionToggle={(sectionId) =>
               setManualOpenSectionIds((current) =>
                 current.includes(sectionId)
@@ -457,16 +505,20 @@ function OutReplyPanel({
   sections,
   manualOpenSectionIds,
   autoOpenSectionId,
+  showSalesCommentComposer,
+  salesCommentTemplate,
   onOpenSectionToggle,
 }: {
   sections: ScriptSection[];
   manualOpenSectionIds: string[];
   autoOpenSectionId: string | null;
+  showSalesCommentComposer: boolean;
+  salesCommentTemplate: string;
   onOpenSectionToggle: (sectionId: string) => void;
 }) {
 
   return (
-    <Card className="flex max-h-[calc(100vh-6rem)] flex-col overflow-hidden border-zinc-900/15 bg-card shadow-sm">
+    <Card className="flex flex-col overflow-hidden border-zinc-900/15 bg-card shadow-sm sm:max-h-[calc(100vh-6rem)]">
       <div className="h-1.5 w-full bg-primary" aria-hidden="true" />
       <CardHeader className="border-b bg-muted/20 pb-3">
         <CardTitle className="flex items-center gap-2 text-base text-zinc-900">
@@ -474,7 +526,7 @@ function OutReplyPanel({
           アウト返し
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2 overflow-y-auto pt-4 pr-2">
+      <CardContent className="space-y-2 overflow-y-auto pt-4 pr-2 pb-4">
         {sections.map((section) => {
           const isOpen =
             manualOpenSectionIds.includes(section.id) ||
@@ -499,8 +551,122 @@ function OutReplyPanel({
             </motion.div>
           );
         })}
+
+        {showSalesCommentComposer ? (
+          <div className="mt-3 rounded-lg border border-zinc-900/12 bg-muted/10 p-3">
+            <SalesCommentComposer templateText={salesCommentTemplate} />
+          </div>
+        ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function SalesCommentComposer({ templateText }: { templateText: string }) {
+  const [draft, setDraft] = useState<SalesCommentDraft>(() => createSalesCommentDraft(templateText));
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(createSalesCommentDraft(templateText));
+    setMessage(null);
+  }, [templateText]);
+
+  const canUndo = draft.historyIndex > 0;
+
+  const handleChangeText = (nextText: string) => {
+    setMessage(null);
+    setDraft((prev) => pushSalesCommentDraft(prev, nextText));
+  };
+
+  const handleUndo = () => {
+    setMessage(null);
+    setDraft((prev) => {
+      if (prev.historyIndex <= 0) {
+        return prev;
+      }
+
+      const nextHistoryIndex = prev.historyIndex - 1;
+      const revertedText = prev.history[nextHistoryIndex] ?? templateText;
+
+      return {
+        ...prev,
+        text: revertedText,
+        historyIndex: nextHistoryIndex,
+      };
+    });
+  };
+
+  const handleClear = () => {
+    setMessage(null);
+    setDraft((prev) => pushSalesCommentDraft(prev, templateText));
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(draft.text);
+      setMessage("営コメ全体をコピーしました");
+      return;
+    } catch {
+      // Fallback for environments where navigator.clipboard is unavailable.
+    }
+
+    try {
+      const fallback = document.createElement("textarea");
+      fallback.value = draft.text;
+      fallback.setAttribute("readonly", "true");
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      fallback.style.pointerEvents = "none";
+      document.body.appendChild(fallback);
+      fallback.focus();
+      fallback.select();
+
+      const copied = document.execCommand("copy");
+      document.body.removeChild(fallback);
+
+      if (!copied) {
+        throw new Error("copy failed");
+      }
+
+      setMessage("営コメ全体をコピーしました");
+    } catch {
+      setMessage("コピーに失敗しました");
+    }
+  };
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-sm font-semibold text-zinc-900">営コメ作成</p>
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="xs" onClick={() => void handleCopy()}>
+          コピー
+        </Button>
+        <Button type="button" variant="outline" size="xs" onClick={handleClear}>
+          入力クリア
+        </Button>
+        <Button type="button" variant="outline" size="xs" onClick={handleUndo} disabled={!canUndo}>
+          戻る（Ctrl+Z）
+        </Button>
+      </div>
+
+      <textarea
+        value={draft.text}
+        onChange={(event) => handleChangeText(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+            event.preventDefault();
+            handleUndo();
+          }
+        }}
+        spellCheck={false}
+        className="min-h-44 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+      />
+
+      {message ? (
+        <p className={`text-sm ${message.includes("失敗") ? "text-destructive" : "text-emerald-700"}`}>{message}</p>
+      ) : null}
+    </div>
   );
 }
 

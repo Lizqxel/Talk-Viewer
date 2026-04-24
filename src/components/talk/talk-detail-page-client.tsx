@@ -9,11 +9,14 @@ import { ChevronLeft, FilePenLine, FolderTree, Loader2, Trash2, TriangleAlert, U
 import { ApiFallbackNotice } from "@/components/shared/api-fallback-notice";
 import { ApiStatusCard } from "@/components/shared/api-status-card";
 import { useTalkBootstrapContext } from "@/components/shared/talk-bootstrap-provider";
+import { ClosingQuickDock } from "@/components/talk/closing-quick-dock";
 import { TalkScriptFlow } from "@/components/talk/talk-script-flow";
 import { TalkTreeView } from "@/components/talk/talk-tree-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { formatJapaneseDateTime } from "@/lib/date-time";
+import { isDocomoTalk } from "@/lib/sales-comment-template";
 import { deleteTalkByApi } from "@/lib/talk-portal-api";
 
 const ClosingManagerPanel = dynamic(
@@ -82,9 +85,11 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
   const productLabel = data.productLabels[talk.product] ?? talk.product;
   const sceneLabel = String(data.sceneLabels[talk.scene] ?? talk.scene).trim();
   const difficultyLabel = String(talk.difficulty ?? "").trim();
+  const canRecordClosing = Boolean(data.user?.canEdit);
+  const showSalesCommentComposer = isDocomoTalk(talk);
 
   return (
-    <div className="space-y-6">
+    <div className={canRecordClosing ? "space-y-6 md:pb-28 xl:pb-0" : "space-y-6"}>
       {isFallback ? <ApiFallbackNotice onRetry={() => void reload()} reason={error?.message} /> : null}
       <div className="space-y-3">
         <Link
@@ -101,7 +106,7 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
               <Badge variant="secondary">{productLabel}</Badge>
               {sceneLabel ? <Badge variant="outline">{sceneLabel}</Badge> : null}
               {difficultyLabel ? <Badge variant="outline">{difficultyLabel}</Badge> : null}
-              <span className="text-xs text-muted-foreground">最終更新: {talk.updatedAt}</span>
+              <span className="text-xs text-muted-foreground">最終更新: {formatJapaneseDateTime(talk.updatedAt)}</span>
             </div>
             {data.user?.canEdit ? (
               <div className="flex flex-wrap items-center gap-2">
@@ -160,11 +165,15 @@ export function TalkDetailPageClient({ talkId }: TalkDetailPageClientProps) {
             rootNodeIds={talk.rootNodeIds}
             sectionDefs={talk.sectionDefs}
             sectionTitleOverrides={talk.sectionTitleOverrides}
+            showSalesCommentComposer={showSalesCommentComposer}
+            salesCommentTemplate={talk.salesCommentTemplate}
           />
         ) : (
           <TalkTreeView nodes={talk.nodes} rootNodeIds={talk.rootNodeIds} />
         )}
       </section>
+
+      <ClosingQuickDock side={isScriptFlowTalk ? "left" : "right"} />
     </div>
   );
 }

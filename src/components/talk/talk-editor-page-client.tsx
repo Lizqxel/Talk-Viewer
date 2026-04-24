@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DEFAULT_DOCOMO_SALES_COMMENT_TEMPLATE, isDocomoTalk } from "@/lib/sales-comment-template";
 import { createSectionDefsFromTalk, deriveTalkSections } from "@/lib/talk-sections";
 import { deleteTalkByApi, publishScriptActivityHighlightByApi, updateTalkByApi } from "@/lib/talk-portal-api";
 import { type NodeKind, type Talk, type TalkBranchGuide, type TalkNode, type TalkOutReply, type TalkSectionDef } from "@/types/talk";
@@ -32,6 +33,8 @@ type BranchGuidePath = number[];
 type OutReplyDraft = TalkOutReply & {
   id: string;
 };
+
+type EditorTab = "node" | "sales-comment-template";
 
 function cloneTalk(talk: Talk): Talk {
   return JSON.parse(JSON.stringify(talk)) as Talk;
@@ -667,6 +670,7 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
   const [dragOverSectionId, setDragOverSectionId] = useState<string | null>(null);
+  const [activeEditorTab, setActiveEditorTab] = useState<EditorTab>("node");
 
   const talk = useMemo(() => data?.talks.find((item) => item.id === talkId) ?? null, [data, talkId]);
 
@@ -682,6 +686,10 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
 
     setDraftTalk(cloned);
   }, [talk, isDirty]);
+
+  useEffect(() => {
+    setActiveEditorTab("node");
+  }, [talkId]);
 
   const sections = useMemo(() => {
     if (!draftTalk) {
@@ -708,6 +716,16 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
       setSelectedNodeId(currentSection.nodes[0]?.id ?? "");
     }
   }, [sections, selectedSectionId, selectedNodeId]);
+
+  useEffect(() => {
+    if (!draftTalk) {
+      return;
+    }
+
+    if (!isDocomoTalk(draftTalk) && activeEditorTab === "sales-comment-template") {
+      setActiveEditorTab("node");
+    }
+  }, [draftTalk, activeEditorTab]);
 
   const selectedSection = sections.find((section) => section.id === selectedSectionId) ?? sections[0] ?? null;
   const selectedNode = selectedSection?.nodes.find((node) => node.id === selectedNodeId) ?? selectedSection?.nodes[0] ?? null;
@@ -1155,6 +1173,10 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
     });
   };
 
+  const canEditSalesCommentTemplate = isDocomoTalk(draftTalk);
+  const isSalesCommentTemplateTab = canEditSalesCommentTemplate && activeEditorTab === "sales-comment-template";
+  const salesCommentTemplateText = draftTalk.salesCommentTemplate ?? DEFAULT_DOCOMO_SALES_COMMENT_TEMPLATE;
+
   return (
     <div className="space-y-6">
       <div className="space-y-3">
@@ -1326,10 +1348,16 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <CardTitle className="text-base">{selectedNode ? selectedNode.title : "ノード未選択"}</CardTitle>
-                <CardDescription>本文の行間に会話ガイドとポイントを挿入できます。</CardDescription>
+                <CardTitle className="text-base">
+                  {isSalesCommentTemplateTab ? "営コメフォーマット" : selectedNode ? selectedNode.title : "ノード未選択"}
+                </CardTitle>
+                <CardDescription>
+                  {isSalesCommentTemplateTab
+                    ? "トーク閲覧側の営コメ欄で初期表示するフォーマットを編集できます。"
+                    : "本文の行間に会話ガイドとポイントを挿入できます。"}
+                </CardDescription>
               </div>
-              {selectedNode ? (
+              {!isSalesCommentTemplateTab && selectedNode ? (
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
@@ -1388,10 +1416,56 @@ export function TalkEditorPageClient({ talkId }: TalkEditorPageClientProps) {
                 </div>
               ) : null}
             </div>
+
+            {canEditSalesCommentTemplate ? (
+              <div className="mt-3 inline-flex rounded-md border border-border/70 bg-muted/20 p-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveEditorTab("node")}
+                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    !isSalesCommentTemplateTab
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  ノード編集
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveEditorTab("sales-comment-template")}
+                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    isSalesCommentTemplateTab
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  営コメフォーマット
+                </button>
+              </div>
+            ) : null}
           </CardHeader>
 
           <CardContent className="space-y-5">
-            {!selectedNode ? (
+            {isSalesCommentTemplateTab ? (
+              <section className="space-y-3 rounded-lg border border-border/70 p-3">
+                <h3 className="text-sm font-semibold">フォーマット本文</h3>
+                <p className="text-sm text-muted-foreground">
+                  ここで編集した内容が、トーク閲覧側の営コメ作成欄に初期表示されます。
+                </p>
+                <textarea
+                  value={salesCommentTemplateText}
+                  onChange={(event) => {
+                    const nextTemplate = event.target.value;
+                    mutateTalk((prevTalk) => ({
+                      ...prevTalk,
+                      salesCommentTemplate: nextTemplate,
+                    }));
+                  }}
+                  spellCheck={false}
+                  className="min-h-60 w-full rounded-md border border-border/70 bg-background px-2.5 py-2 text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                />
+              </section>
+            ) : !selectedNode ? (
               <p className="text-sm text-muted-foreground">編集対象のノードを左の一覧から選択してください。</p>
             ) : (
               <>

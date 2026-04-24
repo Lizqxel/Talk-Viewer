@@ -78,6 +78,7 @@ export interface Talk {
   tags: string[];
   updatedAt: string;
   detailLayout?: TalkDetailLayout;
+  salesCommentTemplate?: string;
   sectionDefs?: TalkSectionDef[];
   sectionTitleOverrides?: Record<string, string>;
   rootNodeIds: string[];
